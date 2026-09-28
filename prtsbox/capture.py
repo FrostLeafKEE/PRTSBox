@@ -20,7 +20,7 @@ from ctypes import wintypes
 import numpy as np
 
 from .models import WindowInfo
-from .win32 import user32, window_rect
+from .win32 import get_window_info, user32, window_rect
 
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 
@@ -78,6 +78,10 @@ def capture_window(window: WindowInfo) -> np.ndarray | None:
         # A minimised window has no composited surface to render.
         return None
 
+    fresh = get_window_info(window.hwnd)
+    if fresh is None:
+        return None
+    window = fresh
     window_box = window_rect(window.hwnd)
     if window_box is None:
         return None
@@ -145,10 +149,13 @@ def _print_window(hwnd: int, width: int, height: int) -> np.ndarray | None:
         info.bmiHeader.biCompression = BI_RGB
 
         buffer = ctypes.create_string_buffer(width * height * 4)
+        # GetDIBits requires the bitmap to be deselected from its DC.
+        gdi32.SelectObject(memory_dc, previous)
+        previous = 0
         copied = gdi32.GetDIBits(
             memory_dc, bitmap, 0, height, buffer, ctypes.byref(info), DIB_RGB_COLORS
         )
-        if copied == 0:
+        if copied != height:
             return None
 
         pixels = np.frombuffer(buffer, dtype=np.uint8).reshape(height, width, 4)
@@ -172,7 +179,7 @@ def is_probably_blank(frame: np.ndarray) -> bool:
     """Detect the all-black frames that protected windows produce.
 
     A black frame is indistinguishable from "nothing to translate", so it is
-    treated as a capture failure and the previous translations are kept.
+    treated as a capture failure and reported to the UI.
     """
     if frame.size == 0:
         return True

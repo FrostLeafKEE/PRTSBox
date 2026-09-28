@@ -121,4 +121,6 @@ class OpenAICompatibleTranslator(Translator):
             raise TranslationError(
                 f"模型返回的译文数量（{count}）与原文数量（{len(texts)}）不一致"
             )
-        return [str(item) for item in translated]
+        if any(not isinstance(item, str) or not item.strip() for item in translated):
+            raise TranslationError("模型返回了空译文或非文本内容，请检查模型及接口配置")
+        return translated

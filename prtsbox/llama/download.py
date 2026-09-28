@@ -71,20 +71,6 @@ def _existing_size(path: Path) -> int:
         return 0
 
 
-def _seed_digest(path: Path) -> tuple[hashlib._Hash, int]:
-    """Hash whatever a previous attempt already wrote, so a resumed download
-    can still be verified end to end."""
-    digest = hashlib.sha256()
-    total = 0
-    if not path.exists():
-        return digest, 0
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(_CHUNK), b""):
-            digest.update(block)
-            total += len(block)
-    return digest, total
-
-
 def _open_stream(
     url: str,
     offset: int,
@@ -96,7 +82,9 @@ def _open_stream(
     that ignores Range replies 200 with the whole file, which means the partial
     data has to be discarded rather than appended to.
     """
-    headers = {"Range": f"bytes={offset}-"} if offset > 0 else {}
+    headers = {"Accept-Encoding": "identity"}
+    if offset > 0:
+        headers["Range"] = f"bytes={offset}-"
     response = requests.get(
         url,
         stream=True,
@@ -104,9 +92,20 @@ def _open_stream(
         timeout=timeout,
         allow_redirects=True,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.RequestException:
+        response.close()
+        # Unknown-size runtime archives may already be complete. Restart if
+        # an EOF range is rejected; model partials are verified before here.
+        if offset > 0 and response.status_code == 416:
+            return _open_stream(url, 0, timeout)[0], False
+        raise
     if offset > 0 and response.status_code != 206:
         return response, False
+    if offset > 0 and not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-"):
+        response.close()
+        raise DownloadError("下载源返回了错误的续传位置")
     return response, True
 
 
@@ -126,6 +125,8 @@ def download_file(
     digest, which is what makes re-running an interrupted install cheap.
     """
     logger = logging.getLogger("prtsbox.download")
+    if cancel is not None and cancel.is_set():
+        raise DownloadCancelled("下载已取消")
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     already_complete = (
@@ -139,9 +140,20 @@ def download_file(
         return dest
 
     partial = _partial_path(dest)
+    # A previous run may have finished transferring but exited before rename.
+    # Requesting bytes=<file-size>- would only produce HTTP 416.
+    if expected_size and _existing_size(partial) == expected_size:
+        if not expected_sha256 or sha256_of(partial) == expected_sha256:
+            os.replace(partial, dest)
+            if on_progress is not None:
+                on_progress(DownloadProgress(expected_size, expected_size, 0.0))
+            return dest
+        partial.unlink()
     last_error: Exception | None = None
 
     for url in urls:
+        if cancel is not None and cancel.is_set():
+            raise DownloadCancelled("下载已取消")
         try:
             _download_one(
                 url,
@@ -173,6 +185,8 @@ def download_file(
                 logger.error("%s", last_error)
                 continue
 
+        if cancel is not None and cancel.is_set():
+            raise DownloadCancelled("下载已取消")
         os.replace(partial, dest)
         logger.info("下载完成：%s", dest.name)
         return dest
@@ -202,7 +216,9 @@ def _download_one(
     with response:
         if not resumed:
             offset = 0
-        digest, written = _seed_digest(partial) if resumed else (hashlib.sha256(), 0)
+        # Count only bytes received in this request. The existing bytes are
+        # already accounted for by offset; the complete file is hashed later.
+        written = 0
         if not resumed:
             partial.unlink(missing_ok=True)
 
@@ -225,7 +241,6 @@ def _download_one(
                 if not chunk:
                     continue
                 handle.write(chunk)
-                digest.update(chunk)
                 written += len(chunk)
 
                 now = time.monotonic()

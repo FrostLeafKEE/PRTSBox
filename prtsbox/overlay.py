@@ -26,12 +26,11 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetricsF,
-    QGuiApplication,
     QPainter,
     QPainterPath,
     QPen,
@@ -55,25 +54,6 @@ _RADIUS = 5.0
 # as a real change and repaints. OCR can shift several pixels on a static
 # screen; redrawing for that is what makes the chips shimmer.
 _POSITION_TOLERANCE = 6.0
-
-
-def _screen_ratio(target: WindowInfo) -> float:
-    """Device pixel ratio of the monitor the target sits on.
-
-    Asking the widget itself is unreliable: ``devicePixelRatioF()`` returns 1.0
-    until the window has been shown on a screen, so on a 125% display the
-    overlay would be laid out 25% too large and every translation would drift
-    further from its source line the lower it appeared.  The target's own
-    coordinates are known before showing, so the monitor is looked up directly.
-    """
-    centre = QPoint(
-        int(target.left + target.width / 2), int(target.top + target.height / 2)
-    )
-    screen = QGuiApplication.screenAt(centre) or QGuiApplication.primaryScreen()
-    if screen is None:
-        return 1.0
-    ratio = float(screen.devicePixelRatio())
-    return ratio if ratio > 0 else 1.0
 
 
 class TranslationOverlay(QWidget):
@@ -186,13 +166,9 @@ class TranslationOverlay(QWidget):
 
     def sync_geometry(self, target: WindowInfo) -> None:
         """Match the target's position and keep the overlay just above it."""
-        ratio = _screen_ratio(target)
-        self.setGeometry(
-            int(target.left / ratio),
-            int(target.top / ratio),
-            max(1, int(target.width / ratio)),
-            max(1, int(target.height / ratio)),
-        )
+        # Native positioning takes physical pixels. Qt updates logical widget
+        # geometry from the resulting window messages. Dividing global monitor
+        # origins by DPR first is incorrect on mixed-scale desktops.
         if self._target_hwnd != target.hwnd:
             self._target_hwnd = target.hwnd
             self._logger.info("译文层目标窗口：hwnd=%s", target.hwnd)
@@ -213,8 +189,8 @@ class TranslationOverlay(QWidget):
             exclude_from_capture(int(self.winId()))
         else:
             include_in_capture(int(self.winId()))
-        self.sync_geometry(target)
         self.show()
+        self.sync_geometry(target)
 
     def hide_overlay(self) -> None:
         self.hide()

@@ -60,8 +60,8 @@ class LlamaManager:
     @property
     def running_model_id(self) -> str:
         """Id of the model the server currently holds, or "" when stopped."""
-        with self._lock:
-            return self._server_model_id if self._server and self._server.is_running else ""
+        server = self._server
+        return self._server_model_id if server and server.is_running else ""
 
     @property
     def base_url(self) -> str:
@@ -69,21 +69,23 @@ class LlamaManager:
             return self._server.base_url if self._server else ""
 
     def is_server_running(self) -> bool:
-        with self._lock:
-            return bool(self._server and self._server.is_running)
+        # Status is polled by the GUI while ensure_server holds the lock for
+        # model loading. A transient snapshot is preferable to freezing the UI.
+        server = self._server
+        return bool(server and server.is_running)
 
     def server_pid(self) -> int:
         """Process id of the running llama-server, or 0 when stopped."""
-        with self._lock:
-            return self._server.pid if self._server else 0
+        server = self._server
+        return server.pid if server else 0
 
     def server_memory_mb(self) -> float:
         """Resident private bytes of the llama-server child, in MiB."""
         return process_private_mb(self.server_pid())
 
     def server_log_path(self) -> Path | None:
-        with self._lock:
-            return self._server.log_path if self._server else None
+        server = self._server
+        return server.log_path if server else None
 
     def is_runtime_installed(self, variant: RuntimeVariant | None = None) -> bool:
         if variant is not None:

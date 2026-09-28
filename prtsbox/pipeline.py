@@ -172,6 +172,7 @@ class PipelineWorker(QObject):
         self._logger = logging.getLogger("prtsbox.pipeline")
         self._ocr: OcrService | None = None
         self._ocr_backend = ocr_backend
+        self._requested_ocr_backend = ocr_backend
         self._cache = TranslationCache()
         self._frames_since_memory_check = 0
         # Footprint when the OCR service was created; growth past the allowance
@@ -187,12 +188,8 @@ class PipelineWorker(QObject):
         self._candidate_frames = 0
 
     def set_ocr_backend(self, backend: str) -> None:
-        """Choose the inference backend; takes effect on the next reload."""
-        if backend == self._ocr_backend:
-            return
-        self._ocr_backend = backend
-        self._logger.info("OCR 后端切换为 %s，重建服务", backend)
-        self._create_ocr()
+        """Request a backend change; only the worker may rebuild the models."""
+        self._requested_ocr_backend = backend
 
     @Slot()
     def initialize(self) -> None:
@@ -336,6 +333,21 @@ class PipelineWorker(QObject):
         if QThread.currentThread().isInterruptionRequested():
             self._emit_frame(FrameResult(note="程序正在退出"))
             return
+        requested = self._requested_ocr_backend
+        if requested != self._ocr_backend:
+            previous_backend = self._ocr_backend
+            self._ocr_backend = requested
+            try:
+                self._create_ocr()
+            except Exception:
+                self._ocr_backend = previous_backend
+                raise
+            self._previous_frame = None
+            self._previous_result = None
+            self._stable_items = None
+            self._candidate_text = None
+            self._candidate_frames = 0
+            self._cache.clear()
         if self._ocr is None:
             self._emit_frame(FrameResult(note="OCR 尚未就绪", error=True))
             return

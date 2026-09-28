@@ -463,7 +463,7 @@ class MainWindow(QMainWindow):
     def refresh_windows(self) -> None:
         previous = self._selected_window.hwnd if self._selected_window else 0
         saved = int(self._config.get("window_hwnd") or 0)
-        exclude = {int(self._overlay.winId()), int(self._pet.winId())}
+        exclude = {int(self.winId()), int(self._overlay.winId()), int(self._pet.winId())}
         windows = list_windows(exclude=exclude)
 
         self._window_combo.blockSignals(True)
@@ -480,20 +480,26 @@ class MainWindow(QMainWindow):
                 self._window_combo.setCurrentIndex(index)
                 self._on_window_changed(index)
                 return
+        if self._running:
+            self.stop()
         if windows:
             self._window_combo.setCurrentIndex(0)
             self._on_window_changed(0)
         else:
-            self._selected_window = None
+            self._clear_selected_window()
             self._set_status("没有找到可翻译的窗口", error=True)
+
+    def _clear_selected_window(self) -> None:
+        self.stop()
+        self._selected_window = None
 
     @Slot(int)
     def _on_window_changed(self, index: int) -> None:
         hwnd = self._window_combo.itemData(index) if index >= 0 else None
         if not hwnd:
-            self._selected_window = None
+            self._clear_selected_window()
             return
-        for window in list_windows(exclude={int(self._overlay.winId()), int(self._pet.winId())}):
+        for window in list_windows(exclude={int(self.winId()), int(self._overlay.winId()), int(self._pet.winId())}):
             if window.hwnd == hwnd:
                 if self._selected_window is None or self._selected_window.hwnd != hwnd:
                     self._session_id += 1
@@ -503,6 +509,8 @@ class MainWindow(QMainWindow):
                 self._config.update(window_hwnd=hwnd, window_title=window.title)
                 self._config.save()
                 return
+        self._clear_selected_window()
+        self._set_status("目标窗口已关闭，请刷新窗口列表", error=True)
 
     @Slot(int)
     def _on_engine_changed(self, _index: int) -> None:
@@ -798,6 +806,7 @@ class MainWindow(QMainWindow):
         """
         config = self.translator_config().to_dict()
         config["session_id"] = self._session_id
+        config["ocr_backend"] = str(self._config.get("ocr_backend") or "auto")
         config["region_bottom_only"] = self._region_check.isChecked()
         config["region_bottom_percent"] = self._region_spin.value()
         return config
@@ -929,6 +938,9 @@ class MainWindow(QMainWindow):
         uninstall_hotkey_hook()
         self._overlay.hide_overlay()
         self._config.save()
+        dialogs = self.findChildren(SettingsDialog)
+        for dialog in dialogs:
+            dialog.cancel_task()
         for worker_thread in (self._prepare_thread, self._thread):
             if worker_thread is not None:
                 worker_thread.requestInterruption()
@@ -942,7 +954,11 @@ class MainWindow(QMainWindow):
         pipeline_stopped = True
         if thread is not None and thread.isRunning():
             pipeline_stopped = thread.wait(max(0, int((deadline - time.monotonic()) * 1000)))
-        if not prepare_stopped or not pipeline_stopped:
+        downloads_stopped = all(
+            dialog.shutdown_task(max(0, int((deadline - time.monotonic()) * 1000)))
+            for dialog in dialogs
+        )
+        if not prepare_stopped or not pipeline_stopped or not downloads_stopped:
             # PrintWindow/native OCR and a remote HTTP request cannot safely be
             # interrupted by QThread.quit(). Settings and the owned child have
             # already been handled; exit the whole process instead of destroying

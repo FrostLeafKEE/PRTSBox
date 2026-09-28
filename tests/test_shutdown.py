@@ -14,6 +14,25 @@ from prtsbox.llama import manager as manager_module
 from prtsbox.llama.server import LlamaServer, LlamaServerError
 
 
+def test_gui_status_reads_do_not_wait_for_model_loading_lock():
+    manager = manager_module.LlamaManager()
+    replied = threading.Event()
+
+    def read():
+        manager.is_server_running()
+        manager.running_model_id
+        manager.server_pid()
+        manager.server_log_path()
+        replied.set()
+
+    with manager._lock:
+        thread = threading.Thread(target=read)
+        thread.start()
+        responsive = replied.wait(.5)
+    thread.join(2)
+    assert responsive
+
+
 def test_shutdown_interrupts_model_loading_without_waiting_for_manager_lock(monkeypatch):
     entered, released = threading.Event(), threading.Event()
 
@@ -112,7 +131,7 @@ def process_alive(pid):
         kernel.CloseHandle(handle)
 
 
-@pytest.mark.parametrize("scenario", ["idle", "capture", "prepare", "translate"])
+@pytest.mark.parametrize("scenario", ["idle", "capture", "prepare", "translate", "download"])
 def test_close_exits_process_and_owned_child(scenario, tmp_path):
     env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "PRTSBOX_DATA_DIR": str(tmp_path)}
     started = time.monotonic()
@@ -204,6 +223,11 @@ def run_child(scenario, directory):
     def begin():
         if scenario == "idle":
             entered.set()
+        elif scenario == "download":
+            from prtsbox.ui.settings_dialog import SettingsDialog
+            main_window.llama.recommend_variant = lambda: main_window.llama.RUNTIME_VARIANTS[0]
+            dialog = SettingsDialog(window._config, window._llama, window)
+            dialog._start_task(lambda cancel, progress: blocked(), kind="runtime", target=None, on_done=lambda: None)
         elif scenario == "prepare":
             window.start()
         else:

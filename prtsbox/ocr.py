@@ -109,6 +109,8 @@ class OcrService:
                 # Shrinking wants area averaging; enlarging wants cubic.
                 interpolation=cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA,
             )
+        else:
+            scale = 1.0
 
         started = time.perf_counter()
         try:

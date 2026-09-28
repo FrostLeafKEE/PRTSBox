@@ -166,6 +166,7 @@ class SettingsDialog(QDialog):
         self._logger = logging.getLogger("prtsbox.settings")
         self._task_thread: QThread | None = None
         self._task: _Task | None = None
+        self._close_pending = False
         self._active_card: ModelCard | None = None
         # What the current task is doing, so the completion handler can put the
         # UI back without a closure being invoked on the worker thread.
@@ -532,6 +533,8 @@ class SettingsDialog(QDialog):
     # -- local state -----------------------------------------------------
 
     def _refresh_local_state(self, *, busy: bool = False) -> None:
+        busy = busy or self._task_thread is not None
+        self._source_test_button.setEnabled(not busy)
         variant = llama.find_variant(self._variant_combo.currentData())
         installed = self._manager.is_runtime_installed()
         chosen_installed = variant is not None and variant.is_installed()
@@ -577,13 +580,16 @@ class SettingsDialog(QDialog):
         task.finished.connect(self._on_task_finished)
         task.failed.connect(self._on_task_failed)
         task.progressed.connect(self._on_task_progressed)
-        task.finished.connect(thread.quit)
-        task.failed.connect(thread.quit)
+        task.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        task.failed.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        thread.finished.connect(task.deleteLater)
+        thread.finished.connect(self._on_task_thread_finished)
         self._task = task
         self._task_thread = thread
         self._task_kind = kind
         self._task_target = target
         self._task_done = on_done
+        self._refresh_local_state(busy=True)
         thread.start()
 
     @Slot()
@@ -692,23 +698,24 @@ class SettingsDialog(QDialog):
         thread = self._task_thread
         if thread is None:
             return
-        if thread.isRunning():
-            thread.quit()
-            # finished is emitted on this (the GUI) thread once the event loop
-            # has actually ended, which is the safe moment to let go.
-            thread.finished.connect(self._on_task_thread_finished)
-        else:
-            self._on_task_thread_finished()
+        thread.quit()
 
     @Slot()
     def _on_task_thread_finished(self) -> None:
         thread = self._task_thread
+        if thread is None:
+            return
         self._task_thread = None
-        if thread is not None:
-            thread.deleteLater()
+        self._task = None
+        thread.deleteLater()
+        self._refresh_local_state()
+        if self._close_pending:
+            super().reject()
 
     @Slot()
     def _download_runtime(self) -> None:
+        if self._task_thread is not None:
+            return
         variant = llama.find_variant(self._variant_combo.currentData())
         if variant is None:
             return
@@ -727,6 +734,8 @@ class SettingsDialog(QDialog):
 
     @Slot(str)
     def _download_model(self, model_id: str) -> None:
+        if self._task_thread is not None:
+            return
         model = llama.find_model(model_id)
         card = self._cards.get(model_id)
         if model is None or card is None:
@@ -744,6 +753,8 @@ class SettingsDialog(QDialog):
 
     @Slot(str)
     def _delete_model(self, model_id: str) -> None:
+        if self._task_thread is not None:
+            return
         model = llama.find_model(model_id)
         if model is None:
             return
@@ -764,14 +775,24 @@ class SettingsDialog(QDialog):
 
     def reject(self) -> None:
         self._save_platform()
-        # A download in flight would keep writing after the dialog is gone, so
-        # it is cancelled and waited for.  Waiting is safe here - this is the
-        # GUI thread waiting on the worker, not the worker on itself - and the
-        # cancel flag is checked between chunks, so it returns promptly.
-        thread = self._task_thread
+        self._save_openai()
+        if self._task_thread is not None:
+            self._close_pending = True
+            self._task_done = None
+            self.cancel_task()
+            self._runtime_status.setText("正在取消任务，完成后自动关闭…")
+            self.setEnabled(False)
+            return
+        super().reject()
+
+    def cancel_task(self) -> None:
+        """Request cancellation without blocking the GUI event loop."""
         if self._task is not None:
             self._task.cancel.set()
-        self._finish_task()
-        if thread is not None and thread.isRunning() and not thread.wait(5000):
-            self._logger.warning("下载线程未能在 5 秒内结束")
-        super().reject()
+        if self._task_thread is not None:
+            self._task_thread.quit()
+
+    def shutdown_task(self, timeout_ms: int) -> bool:
+        self.cancel_task()
+        thread = self._task_thread
+        return thread is None or not thread.isRunning() or thread.wait(timeout_ms)

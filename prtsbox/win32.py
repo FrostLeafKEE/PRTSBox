@@ -20,6 +20,8 @@ dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
+WM_KEYUP = 0x0101
+WM_SYSKEYUP = 0x0105
 VK_F8 = 0x77
 
 GWL_STYLE = -16
@@ -31,11 +33,16 @@ WS_EX_TOPMOST = 0x00000008
 
 DWMWA_CLOAKED = 14
 SWP_NOACTIVATE = 0x0010
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
 SWP_NOOWNERZORDER = 0x0200
 SWP_NOSENDCHANGING = 0x0400
 
 # Sentinel for SetWindowPos: place the window at the top of the Z-order.
 HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
+HWND_TOP = 0
 
 WDA_NONE = 0x00000000
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
@@ -217,15 +224,9 @@ def place_overlay_above(overlay_hwnd: int, target: WindowInfo) -> bool:
     positioned window should come *after*, so passing the target itself would put
     the overlay underneath it - invisible behind an opaque window.
 
-    There are two cases:
-
-    * Target not topmost: insert after whatever sits directly above the target,
-      which places the overlay in the target's own band, directly on top of it.
-    * Target topmost: everything in the topmost band has no band above it for
-      the predecessor to belong to, so the overlay joins the topmost band too.
-      It cannot join via ``HWND_TOPMOST`` alone either, because that band may
-      already hold other always-on-top applications; ``HWND_TOPMOST`` is still
-      the right choice over inserting after an unrelated predecessor.
+    Keep the overlay in the target's topmost/non-topmost band. If it is
+    already directly above the target, only move/resize it. Otherwise insert
+    after the target's predecessor; at a band boundary use the band's top.
 
     ``SWP_NOACTIVATE`` keeps the overlay from stealing focus from the window
     being translated - without it the target would lose foreground on every
@@ -235,11 +236,21 @@ def place_overlay_above(overlay_hwnd: int, target: WindowInfo) -> bool:
     user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
     user32.GetWindow.restype = wintypes.HWND
 
-    if is_topmost(target.hwnd):
-        insert_after = wintypes.HWND(HWND_TOPMOST)
+    target_topmost = is_topmost(target.hwnd)
+    if not target_topmost and is_topmost(overlay_hwnd):
+        user32.SetWindowPos(
+            wintypes.HWND(overlay_hwnd), wintypes.HWND(HWND_NOTOPMOST), 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        )
+    flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING
+    predecessor = user32.GetWindow(wintypes.HWND(target.hwnd), GW_HWNDPREV)
+    if predecessor == overlay_hwnd:
+        insert_after = wintypes.HWND(HWND_TOP)
+        flags |= SWP_NOZORDER
+    elif predecessor and (target_topmost or not is_topmost(predecessor)):
+        insert_after = wintypes.HWND(predecessor)
     else:
-        predecessor = user32.GetWindow(wintypes.HWND(target.hwnd), GW_HWNDPREV)
-        insert_after = predecessor or wintypes.HWND(HWND_TOPMOST)
+        insert_after = wintypes.HWND(HWND_TOPMOST if target_topmost else HWND_TOP)
 
     return bool(
         user32.SetWindowPos(
@@ -249,7 +260,7 @@ def place_overlay_above(overlay_hwnd: int, target: WindowInfo) -> bool:
             target.top,
             target.width,
             target.height,
-            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING,
+            flags,
         )
     )
 
@@ -280,6 +291,7 @@ def include_in_capture(hwnd: int) -> bool:
 _hook_handle = 0
 _hook_proc = None
 _hook_callback = None
+_hotkey_down = False
 _hook_lock = threading.Lock()
 
 
@@ -294,10 +306,16 @@ def _hook_entry(n_code, w_param, event):
     system timeout, so the callback is expected to marshal to the UI thread
     rather than do work inline.
     """
-    if n_code == 0 and w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+    global _hotkey_down
+    if n_code == 0:
         try:
-            if event.contents.vkCode == VK_F8 and _hook_callback is not None:
-                _hook_callback()
+            if event.contents.vkCode == VK_F8:
+                if w_param in (WM_KEYUP, WM_SYSKEYUP):
+                    _hotkey_down = False
+                elif w_param in (WM_KEYDOWN, WM_SYSKEYDOWN) and not _hotkey_down:
+                    _hotkey_down = True
+                    if _hook_callback is not None:
+                        _hook_callback()
         except (ValueError, OSError):
             pass
     return user32.CallNextHookEx(0, n_code, w_param, ctypes.cast(event, ctypes.c_void_p))
@@ -330,10 +348,11 @@ def install_hotkey_hook(callback) -> bool:
 
 
 def uninstall_hotkey_hook() -> None:
-    global _hook_handle, _hook_proc, _hook_callback
+    global _hook_handle, _hook_proc, _hook_callback, _hotkey_down
     with _hook_lock:
         if _hook_handle:
             user32.UnhookWindowsHookEx(wintypes.HHOOK(_hook_handle))
         _hook_handle = 0
         _hook_proc = None
         _hook_callback = None
+        _hotkey_down = False

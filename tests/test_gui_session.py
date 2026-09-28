@@ -123,6 +123,45 @@ def pump(qapp, condition, attempts: int = 300) -> bool:
 
 
 class TestDispatchMechanism:
+    def test_backend_reload_runs_only_on_pipeline_thread(self, qapp, patched_pipeline):
+        from PySide6.QtCore import QThread
+        created_on = []
+        original = pipeline_module.OcrService
+
+        def create(**kwargs):
+            created_on.append(QThread.currentThread())
+            return original(**kwargs)
+
+        patched_pipeline.setattr(pipeline_module, "OcrService", create)
+        window = make_window(patched_pipeline)
+        try:
+            assert pump(qapp, lambda: len(created_on) == 1)
+            window._pipeline.set_ocr_backend("openvino")
+            assert len(created_on) == 1
+            select_target(window)
+            window._running = True
+            window._tick()
+            assert pump(qapp, lambda: len(created_on) == 2 and not window._worker_busy)
+            assert all(thread == window._thread for thread in created_on)
+        finally:
+            window.shutdown()
+
+    def test_disappeared_picker_target_stops_and_clears_overlay(self, qapp, patched_pipeline):
+        from prtsbox.ui import main_window
+        window = make_window(patched_pipeline)
+        try:
+            select_target(window)
+            window._running = True
+            hidden = []
+            patched_pipeline.setattr(window._overlay, "hide_overlay", lambda: hidden.append(True))
+            patched_pipeline.setattr(main_window, "list_windows", lambda **kwargs: [])
+            window.refresh_windows()
+            assert not window._running
+            assert window._selected_window is None
+            assert hidden
+        finally:
+            window.shutdown()
+
     def test_tick_uses_current_window_geometry(self, qapp, patched_pipeline) -> None:
         window = make_window(patched_pipeline)
         try:

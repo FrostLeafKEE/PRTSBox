@@ -133,8 +133,13 @@ class LocalModelTranslator(Translator):
                     timeout=self._timeout,
                 )
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                return _clean_output(str(content))
+                choice = response.json()["choices"][0]
+                content = choice["message"]["content"]
+                if choice.get("finish_reason") == "length":
+                    raise TranslationError("本地模型译文被截断，请缩小识别区域或减少单段文字")
+                if not isinstance(content, str) or not content.strip():
+                    raise TranslationError("本地模型返回了空译文或非文本内容")
+                return _clean_output(content)
             except requests.RequestException as exc:
                 last_error = exc
                 self._logger.warning("本地翻译请求失败（第 %d 次）：%s", attempt + 1, exc)
