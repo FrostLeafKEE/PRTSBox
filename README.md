@@ -2,7 +2,7 @@
 
 Windows 实时窗口 OCR 翻译：抓取目标窗口画面，识别文字，翻译后把译文覆盖回原位置，鼠标可以点穿。
 
-仓库包含稳定的 Python 版和正在迁移的 Rust 预览版。下面的快速开始适用于 Python 版；Rust 版的实现、构建和已知验证范围见 [RUST-MIGRATION.md](RUST-MIGRATION.md)。本地配置、API 密钥、下载的模型和打包产物不纳入仓库。
+当前使用和后续维护以 **Python 版**为主。Rust 实现保留作历史预览，暂停作为日常版本；其已知验证范围见 [RUST-MIGRATION.md](RUST-MIGRATION.md)。本地配置、API 密钥、下载的模型和打包产物不纳入仓库。
 
 翻译默认走**本地模型**，完全离线、免费、无需 API Key。装好运行时和模型后不再需要联网。
 
@@ -137,10 +137,10 @@ data/
 ## 打包分发
 
 ```powershell
-.venv\Scripts\python.exe -m PyInstaller prtsbox.spec --noconfirm
+.venv\Scripts\python.exe scripts\package.py
 ```
 
-产物在 `dist/PRTSBox/`，打成 zip 约 **131 MB**。压缩包里只有程序本体，**不含模型和推理运行时**——它们在首次运行时由内置下载器按需获取（模型 1.06 GB / 4.31 GB 传不动，而且下载器会自动挑选适配本机显卡的运行时变体）。
+产物为 `dist/PRTSBox-日期-win64.zip`，当前约 **135 MB**。脚本在临时目录构建、验证压缩包，不会清理已有的 `dist/PRTSBox/data/`。压缩包里只有程序本体，**不含模型和推理运行时**——它们在首次运行时由内置下载器按需获取（模型 1.06 GB / 4.31 GB 传不动，而且下载器会自动挑选适配本机显卡的运行时变体）。
 
 打包时排除了：
 

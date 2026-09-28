@@ -4,7 +4,8 @@ Doing these as separate manual steps is how the user-facing README twice failed
 to make it into the archive - the build cleans ``dist/`` and the file that was
 placed there by hand disappears.  This does it in one pass and then checks the
 archive by unpacking it somewhere else and running the packaged self-test, so a
-broken build cannot be handed to anyone.
+broken build cannot be handed to anyone.  Build in a temporary directory so a
+local ``dist/PRTSBox/data`` (settings, models and runtime) is never replaced.
 
     .venv\\Scripts\\python.exe scripts\\package.py
     .venv\\Scripts\\python.exe scripts\\package.py --skip-build
@@ -38,7 +39,7 @@ def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(command, cwd=PROJECT, check=False, **kwargs)
 
 
-def build() -> None:
+def build(stage_parent: Path) -> Path:
     # Dependency discovery must not pick same-named DLLs from unrelated tools
     # on PATH (e.g. Poppler's ICU instead of the Windows ICU used by Qt).
     windows = Path(os.environ["SystemRoot"])
@@ -47,7 +48,8 @@ def build() -> None:
         str(Path(sys.base_prefix) / "DLLs"), str(windows / "System32"), str(windows),
     ])}
     result = run(
-        [sys.executable, "-m", "PyInstaller", "prtsbox.spec", "--noconfirm", "--clean", "--log-level=ERROR"],
+        [sys.executable, "-m", "PyInstaller", "prtsbox.spec", "--noconfirm", "--clean",
+         "--log-level=ERROR", "--distpath", str(stage_parent)],
         env=environment,
         capture_output=True,
         encoding='utf-8',
@@ -57,32 +59,28 @@ def build() -> None:
         print(result.stdout[-4000:])
         print(result.stderr[-4000:])
         raise SystemExit("PyInstaller 构建失败")
-    if not (APP_DIR / "PRTSBox.exe").is_file():
-        raise SystemExit(f"构建产物缺失：{APP_DIR / 'PRTSBox.exe'}")
+    app_dir = stage_parent / "PRTSBox"
+    if not (app_dir / "PRTSBox.exe").is_file():
+        raise SystemExit(f"构建产物缺失：{app_dir / 'PRTSBox.exe'}")
+    return app_dir
 
 
-def stage_docs() -> None:
+def stage_docs(app_dir: Path) -> None:
     for name in BUNDLED_DOCS:
         source = PROJECT / name
         if not source.is_file():
             raise SystemExit(f"缺少要打包的文件：{source}")
-        shutil.copy2(source, APP_DIR / name)
+        shutil.copy2(source, app_dir / name)
         print(f"已放入 {name}")
 
 
-def prune_data() -> None:
-    """Drop anything the running build created.
-
-    ``data/`` holds the downloaded models and runtime; shipping it would make
-    the archive gigabytes and defeat the point of the in-app downloader.
-    """
-    data = APP_DIR / "data"
-    if data.exists():
-        shutil.rmtree(data, ignore_errors=True)
-        print("已移除 data/（模型与运行时由使用者自行下载）")
+def package_files(app_dir: Path) -> list[Path]:
+    """List distributable files without touching local application data."""
+    return [path for path in sorted(app_dir.rglob("*"))
+            if path.is_file() and path.relative_to(app_dir).parts[0].casefold() != "data"]
 
 
-def make_zip() -> Path:
+def make_zip(app_dir: Path) -> Path:
     stamp = subprocess.run(
         [sys.executable, "-c", "import datetime;print(datetime.date.today().strftime('%Y%m%d'))"],
         capture_output=True,
@@ -95,9 +93,8 @@ def make_zip() -> Path:
 
     print(f"正在压缩 → {target.name}")
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        for path in sorted(APP_DIR.rglob("*")):
-            if path.is_file():
-                archive.write(path, path.relative_to(APP_DIR))
+        for path in package_files(app_dir):
+            archive.write(path, path.relative_to(app_dir))
     return target
 
 
@@ -164,20 +161,12 @@ def verify(archive: Path) -> bool:
     return True
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--skip-build", action="store_true", help="reuse the existing dist folder")
-    args = parser.parse_args()
-
-    if not args.skip_build:
-        build()
-    stage_docs()
-    prune_data()
-
-    size_mb = sum(p.stat().st_size for p in APP_DIR.rglob("*") if p.is_file()) / (1024 * 1024)
+def package(app_dir: Path) -> int:
+    stage_docs(app_dir)
+    size_mb = sum(p.stat().st_size for p in package_files(app_dir)) / (1024 * 1024)
     print(f"待打包体积 {size_mb:.1f} MB")
 
-    archive = make_zip()
+    archive = make_zip(app_dir)
     size = archive.stat().st_size / (1024 * 1024)
     print(f"压缩包 {archive.name}　{size:.1f} MB")
 
@@ -185,6 +174,21 @@ def main() -> int:
         return 1
     print(f"\n完成：{archive}")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-build", action="store_true", help="reuse the existing dist folder")
+    args = parser.parse_args()
+
+    if args.skip_build:
+        if not (APP_DIR / "PRTSBox.exe").is_file():
+            raise SystemExit(f"缺少现有构建：{APP_DIR / 'PRTSBox.exe'}")
+        return package(APP_DIR)
+
+    DIST.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="prtsbox-package-", dir=DIST) as workspace:
+        return package(build(Path(workspace)))
 
 
 if __name__ == "__main__":
