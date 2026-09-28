@@ -438,11 +438,14 @@ mod tests {
     #[test]
     fn cancelled_http_releases_worker_before_server_responds() {
         use std::sync::{atomic::Ordering, mpsc};
-        for partial_body in [false, true] {
+        for (partial_body, page_switch) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             let token = CancelToken::default();
             let epoch = token.epoch.clone();
+            let scene_changed = token.scene_changed.clone();
             let (release, wait) = mpsc::channel();
             let server = thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
@@ -455,7 +458,11 @@ mod tests {
                     socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{").unwrap();
                 }
                 thread::sleep(Duration::from_millis(100));
-                epoch.store(1, Ordering::Release);
+                if page_switch {
+                    scene_changed.store(true, Ordering::Release);
+                } else {
+                    epoch.store(1, Ordering::Release);
+                }
                 let _ = wait.recv_timeout(Duration::from_secs(5));
             });
             let started = Instant::now();
@@ -466,7 +473,15 @@ mod tests {
             let elapsed = started.elapsed();
             let _ = release.send(());
             server.join().unwrap();
-            assert!(result.unwrap_err().to_string().contains("取消"));
+            let error = result.unwrap_err().to_string();
+            assert!(
+                error.contains(if page_switch {
+                    "画面再次切换"
+                } else {
+                    "取消"
+                }),
+                "{error}"
+            );
             assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
         }
     }

@@ -8,13 +8,16 @@ use crate::{
     ocr::{Ocr, OcrLine},
     textproc, translate,
 };
-use image::{RgbaImage, imageops::crop_imm};
+use image::{
+    RgbaImage,
+    imageops::{FilterType, crop_imm, resize},
+};
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -30,6 +33,7 @@ pub struct TranslatedLine {
 pub struct FrameResult {
     pub generation: u64,
     pub hwnd: isize,
+    pub complete: bool,
     pub size: [u32; 2],
     pub lines: Vec<TranslatedLine>,
     pub status: String,
@@ -96,6 +100,7 @@ fn run(requests: Receiver<Request>, results: Sender<FrameResult>, epoch: Arc<Ato
                 let _ = results.send(FrameResult {
                     generation: request.generation,
                     hwnd: request.hwnd,
+                    complete: true,
                     size: [0, 0],
                     lines: vec![],
                     status: format!("OCR 初始化失败：{error:#}"),
@@ -122,6 +127,7 @@ fn run(requests: Receiver<Request>, results: Sender<FrameResult>, epoch: Arc<Ato
         let token = CancelToken {
             epoch: epoch.clone(),
             expected: request.generation,
+            scene_changed: Arc::new(AtomicBool::new(false)),
         };
         if token.check().is_err() {
             continue;
@@ -153,6 +159,7 @@ fn run(requests: Receiver<Request>, results: Sender<FrameResult>, epoch: Arc<Ato
             &mut cache_order,
             &mut local,
             &token,
+            &results,
         );
         if token.check().is_err() {
             local.stop();
@@ -161,6 +168,17 @@ fn run(requests: Receiver<Request>, results: Sender<FrameResult>, epoch: Arc<Ato
             stable.clear();
             candidate.clear();
             candidate_count = 0;
+            if epoch.load(Ordering::Acquire) == request.generation {
+                let _ = results.send(FrameResult {
+                    generation: request.generation,
+                    hwnd: request.hwnd,
+                    complete: true,
+                    size: [0, 0],
+                    lines: vec![],
+                    status: "画面再次切换，正在重新识别".into(),
+                    timing_ms: [0, 0, 0],
+                });
+            }
             continue;
         }
         let result = match outcome {
@@ -168,6 +186,7 @@ fn run(requests: Receiver<Request>, results: Sender<FrameResult>, epoch: Arc<Ato
             Err(error) => FrameResult {
                 generation: request.generation,
                 hwnd: request.hwnd,
+                complete: true,
                 size: [0, 0],
                 lines: vec![],
                 status: format!("{error:#}"),
@@ -191,6 +210,7 @@ fn process(
     cache_order: &mut VecDeque<String>,
     local: &mut LocalServer,
     token: &CancelToken,
+    progress: &Sender<FrameResult>,
 ) -> anyhow::Result<FrameResult> {
     token.check()?;
     let capture_started = std::time::Instant::now();
@@ -279,16 +299,64 @@ fn process(
     }
     let translate_started = std::time::Instant::now();
     if !pending.is_empty() {
-        let translations =
-            translate::translate_cancellable(&request.config, &pending, local, token)?;
-        token.check()?;
-        for (source, result) in pending.into_iter().zip(translations) {
-            cache_order.push_back(source.clone());
-            cache.insert(source, result);
-            if cache_order.len() > 2000
-                && let Some(old) = cache_order.pop_front()
+        let _watch = (request.config.get("engine") == "local")
+            .then(|| SceneWatch::start(request.hwnd, top, &crop, token.scene_changed.clone()));
+        if previous_result
+            .as_ref()
+            .is_none_or(|old| !same_source_lines(&old.lines, &lines))
+        {
+            // A new page must not keep painting the previous page while inference runs.
+            let _ = progress.send(FrameResult {
+                generation: request.generation,
+                hwnd: request.hwnd,
+                complete: false,
+                size: [0, 0],
+                lines: vec![],
+                status: format!("画面已变化，正在翻译 {} 条新文字", pending.len()),
+                timing_ms: [capture_ms, ocr_ms, 0],
+            });
+        }
+        let chunk_size = if request.config.get("engine") == "local" {
+            4
+        } else {
+            pending.len()
+        };
+        let mut finished = 0;
+        let mut last_recheck = std::time::Instant::now();
+        for part in pending.chunks(chunk_size) {
+            let translations =
+                translate::translate_cancellable(&request.config, part, local, token)?;
+            token.check()?;
+            for (source, result) in part.iter().zip(translations) {
+                cache_order.push_back(source.clone());
+                cache.insert(source.clone(), result);
+                if cache_order.len() > 2000
+                    && let Some(old) = cache_order.pop_front()
+                {
+                    cache.remove(&old);
+                }
+            }
+            finished += part.len();
+            if finished < pending.len() {
+                let _ = progress.send(FrameResult {
+                    generation: request.generation,
+                    hwnd: request.hwnd,
+                    complete: false,
+                    size,
+                    lines: cached_lines(&lines, cache),
+                    status: format!("正在翻译新文字 {finished}/{}", pending.len()),
+                    timing_ms: [capture_ms, ocr_ms, translate_started.elapsed().as_millis()],
+                });
+            }
+            // Long game screens can take many local batches. Discard obsolete work
+            // promptly when the player changes page again during translation.
+            if finished < pending.len()
+                && last_recheck.elapsed() >= std::time::Duration::from_secs(2)
             {
-                cache.remove(&old);
+                if page_changed(request.hwnd, top, &new_text, ocr) {
+                    anyhow::bail!("画面再次切换，正在重新识别");
+                }
+                last_recheck = std::time::Instant::now();
             }
         }
     }
@@ -311,6 +379,7 @@ fn process(
     let result = FrameResult {
         generation: request.generation,
         hwnd: request.hwnd,
+        complete: true,
         size,
         lines: translated,
         status,
@@ -320,6 +389,132 @@ fn process(
     *previous_pixels = crop.into_raw();
     *previous_result = Some(result.clone());
     Ok(result)
+}
+
+fn cached_lines(lines: &[OcrLine], cache: &HashMap<String, String>) -> Vec<TranslatedLine> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            cache
+                .get(&normalize(&line.text))
+                .map(|translation| TranslatedLine {
+                    line: line.clone(),
+                    translation: translation.clone(),
+                })
+        })
+        .collect()
+}
+
+fn same_source_lines(old: &[TranslatedLine], current: &[OcrLine]) -> bool {
+    old.len() == current.len()
+        && old.iter().zip(current).all(|(a, b)| {
+            normalize(&a.line.text) == normalize(&b.text)
+                && a.line
+                    .bounds
+                    .iter()
+                    .zip(b.bounds)
+                    .all(|(x, y)| x.abs_diff(y) <= 6)
+        })
+}
+
+fn page_changed(hwnd: isize, top: u32, original: &str, ocr: &mut Ocr) -> bool {
+    let Some(window) = capture::window_info(hwnd) else {
+        return false;
+    };
+    let Ok(frame) = capture::capture_window(&window) else {
+        return false;
+    };
+    if top >= frame.height() {
+        return true;
+    }
+    let crop = crop_imm(&frame, 0, top, frame.width(), frame.height() - top).to_image();
+    let Ok(lines) = ocr.recognize(&crop) else {
+        return false;
+    };
+    let observed = lines
+        .iter()
+        .map(|line| normalize(&line.text))
+        .collect::<Vec<_>>()
+        .join("|");
+    materially_changed(original, &observed)
+}
+
+fn materially_changed(original: &str, observed: &str) -> bool {
+    if original.is_empty() || observed.is_empty() {
+        return original != observed;
+    }
+    !similar(original, observed)
+}
+
+struct SceneWatch {
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl SceneWatch {
+    fn start(hwnd: isize, top: u32, baseline: &RgbaImage, changed: Arc<AtomicBool>) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_thread = stop.clone();
+        let baseline = scene_signature(baseline);
+        let handle = thread::spawn(move || {
+            let mut consecutive = 0;
+            while !stop_for_thread.load(Ordering::Acquire) {
+                thread::sleep(std::time::Duration::from_millis(500));
+                if stop_for_thread.load(Ordering::Acquire) {
+                    break;
+                }
+                let Some(window) = capture::window_info(hwnd) else {
+                    continue;
+                };
+                let Ok(frame) = capture::capture_window(&window) else {
+                    continue;
+                };
+                if top >= frame.height() {
+                    continue;
+                }
+                let crop = crop_imm(&frame, 0, top, frame.width(), frame.height() - top).to_image();
+                if scene_looks_different(&baseline, &scene_signature(&crop)) {
+                    consecutive += 1;
+                    if consecutive >= 2 {
+                        changed.store(true, Ordering::Release);
+                        break;
+                    }
+                } else {
+                    consecutive = 0;
+                }
+            }
+        });
+        Self {
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for SceneWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn scene_signature(frame: &RgbaImage) -> Vec<[u8; 3]> {
+    resize(frame, 24, 14, FilterType::Triangle)
+        .pixels()
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect()
+}
+
+fn scene_looks_different(old: &[[u8; 3]], new: &[[u8; 3]]) -> bool {
+    old.len() != new.len()
+        || old
+            .iter()
+            .zip(new)
+            .filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 35))
+            .count()
+            > old.len() * 15 / 100
 }
 
 fn is_blank(frame: &RgbaImage) -> bool {
@@ -406,6 +601,7 @@ fn results_belong_to_one_window_and_settings_generation() {
     let result = FrameResult {
         generation: 3,
         hwnd: 100,
+        complete: true,
         size: [100, 100],
         lines: vec![],
         status: String::new(),
@@ -414,4 +610,60 @@ fn results_belong_to_one_window_and_settings_generation() {
     assert!(result.belongs_to(3, 100));
     assert!(!result.belongs_to(3, 200));
     assert!(!result.belongs_to(4, 100));
+}
+
+#[cfg(test)]
+#[test]
+fn page_switch_is_distinct_from_animation_and_small_ocr_noise() {
+    let old = "TEAMS #2|The House of Spiders|Wuthering Heights|The Middle Little Sister";
+    assert!(!materially_changed(old, old));
+    assert!(!materially_changed(
+        old,
+        "TEAMS #2|The House of Spiders|Wuthering Heights|The Middle Little Sistef"
+    ));
+    assert!(materially_changed(old, "STORY|Chapter 1|Continue|Skip"));
+    assert!(materially_changed(old, ""));
+}
+
+#[cfg(test)]
+#[test]
+fn partial_translation_only_paints_current_page_lines() {
+    let current = vec![OcrLine {
+        text: "new page".into(),
+        bounds: [10, 20, 100, 40],
+        score: 1.0,
+    }];
+    let mut cache = HashMap::new();
+    cache.insert("old page".into(), "旧页".into());
+    assert!(cached_lines(&current, &cache).is_empty());
+    cache.insert("new page".into(), "新页".into());
+    let partial = cached_lines(&current, &cache);
+    assert_eq!(partial.len(), 1);
+    assert_eq!(partial[0].translation, "新页");
+}
+
+#[cfg(test)]
+#[test]
+fn coarse_scene_signature_ignores_small_animation_but_detects_new_page() {
+    let first = RgbaImage::from_pixel(240, 140, image::Rgba([25, 25, 25, 255]));
+    let mut animated = first.clone();
+    for y in 10..25 {
+        for x in 10..25 {
+            animated.put_pixel(x, y, image::Rgba([240, 240, 240, 255]));
+        }
+    }
+    assert!(!scene_looks_different(
+        &scene_signature(&first),
+        &scene_signature(&animated)
+    ));
+    let mut next_page = first.clone();
+    for y in 0..100 {
+        for x in 0..150 {
+            next_page.put_pixel(x, y, image::Rgba([220, 120, 80, 255]));
+        }
+    }
+    assert!(scene_looks_different(
+        &scene_signature(&first),
+        &scene_signature(&next_page)
+    ));
 }

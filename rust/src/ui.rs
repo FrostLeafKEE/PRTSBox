@@ -334,8 +334,13 @@ impl App {
             if !self.running || !result.belongs_to(self.generation, self.selected) {
                 continue;
             }
-            self.busy = false;
-            self.status = if self.config.bool("show_latency") && result.size[0] > 0 {
+            if result.complete {
+                self.busy = false;
+            }
+            self.status = if result.complete
+                && self.config.bool("show_latency")
+                && result.size[0] > 0
+            {
                 format!(
                     "{} · 截图 {}ms · OCR {}ms · 翻译 {}ms",
                     result.status, result.timing_ms[0], result.timing_ms[1], result.timing_ms[2]
@@ -919,12 +924,24 @@ impl App {
 
     fn draw_overlay(&self, ctx: &egui::Context) {
         if !self.running {
+            ctx.send_viewport_cmd_to(
+                ViewportId::from_hash_of("prtsbox-overlay"),
+                ViewportCommand::Close,
+            );
             return;
         }
         let Some(result) = self.result.as_ref() else {
+            ctx.send_viewport_cmd_to(
+                ViewportId::from_hash_of("prtsbox-overlay"),
+                ViewportCommand::Close,
+            );
             return;
         };
         if !result.belongs_to(self.generation, self.selected) || result.lines.is_empty() {
+            ctx.send_viewport_cmd_to(
+                ViewportId::from_hash_of("prtsbox-overlay"),
+                ViewportCommand::Close,
+            );
             return;
         }
         let Some(window) = capture::window_info(self.selected) else {
