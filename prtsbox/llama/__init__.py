@@ -1,0 +1,70 @@
+"""Local translation backend: llama.cpp runtime, models and server lifecycle."""
+
+from __future__ import annotations
+
+from .catalog import (
+    DEFAULT_MODEL_ID,
+    DEFAULT_VARIANT_ID,
+    DOWNLOAD_SOURCES,
+    LLAMA_TAG,
+    MODELS,
+    RUNTIME_VARIANTS,
+    SOURCE_AUTO,
+    SOURCE_DOMESTIC,
+    SOURCE_LABELS,
+    SOURCE_OFFICIAL,
+    LocalModel,
+    RuntimeVariant,
+    default_model,
+    downloaded_models,
+    find_model,
+    find_variant,
+    installed_variants,
+    normalise_source,
+    probe_source,
+    recommend_variant,
+    resolve_variant,
+)
+from .download import (
+    DownloadCancelled,
+    DownloadError,
+    DownloadProgress,
+    download_file,
+    sha256_of,
+)
+from .manager import LlamaManager, resolve_model
+from .server import LlamaServer, LlamaServerError, install_runtime
+
+__all__ = [
+    "DEFAULT_MODEL_ID",
+    "DEFAULT_VARIANT_ID",
+    "DOWNLOAD_SOURCES",
+    "LLAMA_TAG",
+    "MODELS",
+    "RUNTIME_VARIANTS",
+    "SOURCE_AUTO",
+    "SOURCE_DOMESTIC",
+    "SOURCE_LABELS",
+    "SOURCE_OFFICIAL",
+    "DownloadCancelled",
+    "DownloadError",
+    "DownloadProgress",
+    "LlamaManager",
+    "LlamaServer",
+    "LlamaServerError",
+    "LocalModel",
+    "RuntimeVariant",
+    "default_model",
+    "download_file",
+    "downloaded_models",
+    "find_model",
+    "find_variant",
+    "install_runtime",
+    "installed_variants",
+    "normalise_source",
+    "probe_source",
+    "recommend_variant",
+    "resolve_model",
+    "resolve_variant",
+    "sha256_of",
+]

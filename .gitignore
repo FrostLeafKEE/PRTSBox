@@ -1,0 +1,29 @@
+# Application data: config, downloaded models, llama.cpp runtime, logs, caches.
+# Kept out of version control so an update never clobbers a user's models.
+data/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+cache/
+rust/target/
+*.log
+*.gguf
+*.zip
+*.zip.incomplete
+.env
+.env.*
+*.key
+*.pem
+
+# Test artefacts
+scripts/*.png
+scripts/models_compare.json
+scripts/_capture_sample.txt
+
+# Packaging output (regenerate with: python -m PyInstaller prtsbox.spec)
+build/
+dist/
+*.spec.bak
