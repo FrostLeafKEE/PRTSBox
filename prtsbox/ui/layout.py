@@ -134,6 +134,10 @@ class ResponsiveRow(QWidget):
         self._box.setContentsMargins(0, 0, 0, 0)
         self._box.setSpacing(spacing)
         self._stacked = False
+        # Start in the compact mode.  A long horizontal size hint can otherwise
+        # force a scroll area's content wider than its viewport before the row
+        # ever receives a narrow resize event (notably with English labels).
+        self._apply(True)
 
     def add(self, widget: QWidget, stretch: int = 0) -> QWidget:
         self._box.addWidget(widget, stretch)

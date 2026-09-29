@@ -89,14 +89,125 @@ def patched_pipeline(monkeypatch: pytest.MonkeyPatch):
     return monkeypatch
 
 
-def make_window(patched_pipeline):
+def make_window(patched_pipeline, config=None):
     from prtsbox.ui.main_window import MainWindow
 
-    config = ConfigStore()
+    config = config or ConfigStore()
     config.load()
     window = MainWindow(config, llama_manager=StubLlamaManager())  # type: ignore[arg-type]
     window.load_from_config()
     return window
+
+
+def test_ui_language_switch_persists_and_preserves_translation_choices(
+    qapp, patched_pipeline, tmp_path
+) -> None:
+    import re
+
+    from PySide6.QtWidgets import QAbstractButton, QComboBox, QGroupBox, QLabel, QLineEdit, QScrollArea, QTabWidget, QWidget
+
+    from prtsbox.ui.settings_dialog import SettingsDialog
+
+    config = ConfigStore(tmp_path / "config.json")
+    window = make_window(patched_pipeline, config)
+    try:
+        original_engine = window._engine_combo.currentData()
+        original_target = window._target_combo.currentData()
+        assert window._language_button.text() == "中 / EN"
+        assert window.windowTitle() == "PRTSBox v1.00 · 实时窗口翻译"
+
+        window.resize(400, 520)
+        window.show()
+        qapp.processEvents()
+        window._language_button.click()
+        qapp.processEvents()
+        assert config.get("ui_language") == "en"
+        assert ConfigStore(config.path).load()["ui_language"] == "en"
+        assert window.windowTitle() == "PRTSBox v1.00 · Live Window Translation"
+        assert any(group.title() == "Translation engine" for group in window.findChildren(QGroupBox))
+        assert window._engine_combo.itemText(0) == "Local model (free, offline)"
+        assert window._target_combo.itemText(window._target_combo.findData("en")) == "English"
+        assert window._engine_combo.currentData() == original_engine
+        assert window._target_combo.currentData() == original_target
+        main_scroll = window.findChild(QScrollArea)
+        assert main_scroll is not None
+        assert main_scroll.horizontalScrollBar().maximum() == 0
+
+        window._set_status("未识别到文字")
+        assert window._status_label.text() == "No text detected"
+        assert window._pet._main_window_action.text() == "Open main window"
+        assert window._pet._translation_action.text() == "Start translation"
+
+        main_untranslated = []
+        for widget in window.findChildren(QWidget):
+            if widget in (window._window_combo, window._language_button):
+                continue
+            if isinstance(widget, QGroupBox):
+                values = [widget.title()]
+            elif isinstance(widget, QComboBox):
+                values = [widget.itemText(i) for i in range(widget.count())]
+            elif isinstance(widget, (QLabel, QAbstractButton)):
+                values = [widget.text()]
+            else:
+                values = []
+            values.append(widget.toolTip())
+            main_untranslated.extend(value for value in values if re.search(r"[\u4e00-\u9fff]", value))
+        assert main_untranslated == []
+
+        dialog = SettingsDialog(config, window._llama, window)
+        try:
+            tabs = dialog.findChild(QTabWidget)
+            assert tabs is not None
+            assert [tabs.tabText(i) for i in range(tabs.count())] == [
+                "General", "Local model", "Translation provider", "AI Model API"
+            ]
+            assert any(label.text() == "OCR backend" for label in dialog.findChildren(QLabel))
+            assert dialog._theme_combo.itemText(0) == "Dark"
+            assert dialog._cards[next(iter(dialog._cards))]._download.text() == "Download"
+            untranslated = []
+            for widget in dialog.findChildren(QWidget):
+                if isinstance(widget, QGroupBox):
+                    values = [widget.title()]
+                elif isinstance(widget, QComboBox):
+                    values = [widget.itemText(i) for i in range(widget.count())]
+                elif isinstance(widget, (QLabel, QAbstractButton)):
+                    values = [widget.text()]
+                else:
+                    values = []
+                values.append(widget.toolTip())
+                if isinstance(widget, QLineEdit):
+                    values.append(widget.placeholderText())
+                untranslated.extend(value for value in values if re.search(r"[\u4e00-\u9fff]", value))
+            assert untranslated == []
+        finally:
+            dialog.reject()
+
+        window._language_button.click()
+        assert config.get("ui_language") == "zh"
+        assert window.windowTitle() == "PRTSBox v1.00 · 实时窗口翻译"
+        assert window._status_label.text() == "未识别到文字"
+        assert "目标语言是中文" in window._skip_chinese_check.toolTip()
+        assert window._pet._main_window_action.text() == "打开主窗口"
+        assert window._engine_combo.currentData() == original_engine
+        assert window._target_combo.currentData() == original_target
+    finally:
+        window.shutdown()
+
+
+def test_saved_english_language_is_applied_on_startup(qapp, patched_pipeline, tmp_path) -> None:
+    config = ConfigStore(tmp_path / "config.json")
+    config.load()
+    config.set("ui_language", "en")
+    config.save()
+
+    window = make_window(patched_pipeline, ConfigStore(config.path))
+    try:
+        assert window.windowTitle() == "PRTSBox v1.00 · Live Window Translation"
+        assert window._language_button.isChecked()
+        assert window._pet._close_action.text() == "Hide pet"
+        assert window._source_combo.itemText(0) == "Auto detect"
+    finally:
+        window.shutdown()
 
 
 def select_target(window) -> None:

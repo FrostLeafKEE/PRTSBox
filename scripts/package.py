@@ -23,11 +23,14 @@ import zipfile
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT))
+from prtsbox import __version__
+
 DIST = PROJECT / "dist"
 APP_DIR = DIST / "PRTSBox"
 
 # Files copied next to the executable, from the repository.
-BUNDLED_DOCS = ("使用说明.txt",)
+BUNDLED_DOCS = ("README.md", "README.zh-CN.md", "使用说明.txt")
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -81,14 +84,7 @@ def package_files(app_dir: Path) -> list[Path]:
 
 
 def make_zip(app_dir: Path) -> Path:
-    stamp = subprocess.run(
-        [sys.executable, "-c", "import datetime;print(datetime.date.today().strftime('%Y%m%d'))"],
-        capture_output=True,
-        encoding='utf-8',
-        errors='replace',
-        check=True,
-    ).stdout.strip()
-    target = DIST / f"PRTSBox-{stamp}-win64.zip"
+    target = DIST / f"PRTSBox-v{__version__}-win64.zip"
     target.unlink(missing_ok=True)
 
     print(f"正在压缩 → {target.name}")

@@ -163,6 +163,7 @@ QPushButton {
 QPushButton:hover { background: $hover; border-color: $border_strong; }
 QPushButton:pressed { background: $border; }
 QPushButton:disabled { color: $text_muted; background: $surface; border-color: $border; }
+QPushButton#languageButton:checked { color: $accent; border-color: $accent; }
 
 QPushButton[role="primary"] {
     background: $accent;

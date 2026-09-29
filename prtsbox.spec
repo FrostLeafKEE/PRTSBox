@@ -22,8 +22,34 @@ import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo, StringFileInfo, StringStruct, StringTable,
+    VarFileInfo, VarStruct, VSVersionInfo,
+)
 
 PROJECT = Path(SPECPATH).resolve()
+sys.path.insert(0, str(PROJECT))
+from prtsbox import __version__
+
+version_parts = tuple(int(part) for part in __version__.split("."))
+version_quad = (*version_parts, 0, 0)[:4]
+version_resource = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=version_quad, prodvers=version_quad),
+    kids=[
+        StringFileInfo([
+            StringTable("040904B0", [
+                StringStruct("CompanyName", "FrostLeafKEE"),
+                StringStruct("FileDescription", "PRTSBox live window translation"),
+                StringStruct("FileVersion", f"v{__version__}"),
+                StringStruct("InternalName", "PRTSBox"),
+                StringStruct("OriginalFilename", "PRTSBox.exe"),
+                StringStruct("ProductName", "PRTSBox"),
+                StringStruct("ProductVersion", f"v{__version__}"),
+            ]),
+        ]),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ],
+)
 
 # The OCR wheel ships its own detection and recognition ONNX models; without
 # these the packaged build starts and then fails at the first frame.
@@ -122,6 +148,7 @@ exe = EXE(
     icon=str(PROJECT / "prtsbox" / "ui" / "assets" / "app.ico")
     if (PROJECT / "prtsbox" / "ui" / "assets" / "app.ico").is_file()
     else None,
+    version=version_resource,
 )
 
 coll = COLLECT(

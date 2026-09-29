@@ -41,6 +41,7 @@ DEFAULTS: dict[str, Any] = {
     "region_bottom_only": False,
     "region_bottom_percent": 30,
     "theme": "dark",
+    "ui_language": "zh",
     "local_model": "hy-mt2-1.8b",
     "local_runtime_variant": "auto",
     "ocr_backend": "auto",
@@ -105,6 +106,7 @@ class ConfigStore:
             merged = dict(DEFAULTS)
             merged.update(raw)
             merged["engine"] = self._normalise_engine(merged.get("engine"))
+            merged["ui_language"] = "en" if merged.get("ui_language") == "en" else "zh"
             merged["layout_mode"] = str(merged.get("layout_mode", "below"))
             merged["overlay_font_size"] = _clamp_int(merged.get("overlay_font_size"), 9, 28, 14)
             merged["region_bottom_percent"] = _clamp_int(

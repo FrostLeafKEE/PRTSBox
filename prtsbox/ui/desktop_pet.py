@@ -5,6 +5,8 @@ from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QWidget
 
+from .i18n import localize
+
 
 class DesktopPet(QWidget):
     translation_requested = Signal()
@@ -41,6 +43,7 @@ class DesktopPet(QWidget):
         self._frame = 0
         self._running = False
         self._preparing = False
+        self._language = "zh"
         self._drag_offset: QPoint | None = None
         self._placed = False
         self._timer = QTimer(self)
@@ -60,11 +63,22 @@ class DesktopPet(QWidget):
         self._close_action.triggered.connect(self.close)
         self._refresh_frame()
 
+    def set_language(self, language: str) -> None:
+        self._language = language
+        self._main_window_action.setText(localize("打开主窗口", language))
+        self._close_action.setText(localize("关闭桌宠", language))
+        self._translation_action.setText(localize(
+            "正在准备翻译…" if self._preparing else
+            "停止翻译" if self._running else "开启翻译", language
+        ))
+
     def set_translation_state(self, running: bool, preparing: bool, can_start: bool) -> None:
         self._running = running
         self._preparing = preparing
-        self._translation_action.setText("正在准备翻译…" if preparing else
-                                         "停止翻译" if running else "开启翻译")
+        self._translation_action.setText(localize(
+            "正在准备翻译…" if preparing else
+            "停止翻译" if running else "开启翻译", self._language
+        ))
         self._translation_action.setEnabled(not preparing and (running or can_start))
         if self._drag_offset is None or not self._drag_idle_timer.isActive():
             self._resume_rest()

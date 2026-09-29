@@ -30,6 +30,7 @@ from ..config import ConfigStore
 from ..llama import DownloadProgress, LlamaManager
 from ..translate.platform import PLATFORMS, PLATFORM_SECRETS, AZURE_ENDPOINT
 from .layout import ResponsiveRow, expanding, scrollable, shrinkable_combo
+from .i18n import set_localized_text, translate_widget_tree
 from .theme import stylesheet, tokens_for
 
 
@@ -84,9 +85,10 @@ class ModelCard(QGroupBox):
     delete_requested = Signal(str)
     use_requested = Signal(str)
 
-    def __init__(self, model: llama.LocalModel) -> None:
+    def __init__(self, model: llama.LocalModel, language: str = "zh") -> None:
         super().__init__(model.name)
         self.model = model
+        self._language = language
         layout = QVBoxLayout(self)
         layout.setSpacing(6)
 
@@ -143,11 +145,11 @@ class ModelCard(QGroupBox):
         self._delete.setEnabled(installed and not busy)
 
         if is_active:
-            self._status.setText("✓ 正在使用")
+            set_localized_text(self._status, "✓ 正在使用", self._language)
         elif installed:
-            self._status.setText("✓ 已下载，可直接切换使用")
+            set_localized_text(self._status, "✓ 已下载，可直接切换使用", self._language)
         else:
-            self._status.setText("未下载")
+            set_localized_text(self._status, "未下载", self._language)
 
     def set_downloading(self, fraction: float, text: str) -> None:
         self._download.setVisible(False)
@@ -155,13 +157,14 @@ class ModelCard(QGroupBox):
         self._delete.setVisible(False)
         self._progress.setVisible(True)
         self._progress.setValue(int(max(0.0, min(1.0, fraction)) * 1000))
-        self._status.setText(text)
+        set_localized_text(self._status, text, self._language)
 
 
 class SettingsDialog(QDialog):
     def __init__(self, config: ConfigStore, manager: LlamaManager, parent=None) -> None:
         super().__init__(parent)
         self._config = config
+        self._language = "en" if config.get("ui_language") == "en" else "zh"
         self._manager = manager
         self._logger = logging.getLogger("prtsbox.settings")
         self._task_thread: QThread | None = None
@@ -207,6 +210,7 @@ class SettingsDialog(QDialog):
         root.addWidget(buttons)
 
         self._refresh_local_state()
+        translate_widget_tree(self, self._language)
 
     # -- tabs ------------------------------------------------------------
 
@@ -366,7 +370,7 @@ class SettingsDialog(QDialog):
         models_layout = QVBoxLayout(models_group)
         self._cards: dict[str, ModelCard] = {}
         for model in llama.MODELS:
-            card = ModelCard(model)
+            card = ModelCard(model, self._language)
             card.download_requested.connect(self._download_model)
             card.delete_requested.connect(self._delete_model)
             card.use_requested.connect(self._use_model)
@@ -503,8 +507,10 @@ class SettingsDialog(QDialog):
         return page
 
     def _refresh_key_hint(self) -> None:
-        self._key_hint.setText(
-            "✓ 已保存 API Key" if self._config.has_secret("openai_api_key") else "尚未填写 API Key"
+        set_localized_text(
+            self._key_hint,
+            "✓ 已保存 API Key" if self._config.has_secret("openai_api_key") else "尚未填写 API Key",
+            self._language,
         )
 
     # -- persistence -----------------------------------------------------
@@ -541,12 +547,12 @@ class SettingsDialog(QDialog):
 
         if self._manager.is_server_running():
             running = self._manager.running_model_id
-            self._runtime_status.setText(f"✓ 运行时运行中（模型：{running or '未知'}）")
+            set_localized_text(self._runtime_status, f"✓ 运行时运行中（模型：{running or '未知'}）", self._language)
         elif installed:
             names = "、".join(v.name for v in llama.installed_variants())
-            self._runtime_status.setText(f"✓ 运行时已安装：{names}")
+            set_localized_text(self._runtime_status, f"✓ 运行时已安装：{names}", self._language)
         else:
-            self._runtime_status.setText("尚未安装运行时，本地翻译无法启动。")
+            set_localized_text(self._runtime_status, "尚未安装运行时，本地翻译无法启动。", self._language)
 
         self._runtime_button.setVisible(not chosen_installed)
         self._runtime_button.setEnabled(not busy and not chosen_installed)
@@ -609,7 +615,7 @@ class SettingsDialog(QDialog):
         self._task_done = None
         self._finish_task()
         self._refresh_local_state()
-        self._runtime_status.setText(f"下载未完成：{message}")
+        set_localized_text(self._runtime_status, f"下载未完成：{message}", self._language)
 
     @Slot()
     def _save_source(self) -> None:
@@ -631,12 +637,12 @@ class SettingsDialog(QDialog):
         up at the end of a multi-gigabyte download.
         """
         if self._task_thread is not None:
-            self._source_status.setText("正在下载，无法同时测试。")
+            set_localized_text(self._source_status, "正在下载，无法同时测试。", self._language)
             return
 
         model = llama.find_model(str(self._config.get("local_model") or "")) or llama.default_model()
         self._source_test_button.setEnabled(False)
-        self._source_status.setText(f"正在测试 {model.filename} 的各下载源…")
+        set_localized_text(self._source_status, f"正在测试 {model.filename} 的各下载源…", self._language)
 
         targets = model.sources_with_labels()
         results: list[str] = []
@@ -654,7 +660,7 @@ class SettingsDialog(QDialog):
                 emit_progress(DownloadProgress(len(results), len(targets), 0.0))
 
         def done() -> None:
-            self._source_status.setText("　·　".join(results) if results else "测试未完成")
+            set_localized_text(self._source_status, "　·　".join(results) if results else "测试未完成", self._language)
             self._source_test_button.setEnabled(True)
 
         self._start_task(action, kind="probe", target=model, on_done=done)
@@ -666,9 +672,9 @@ class SettingsDialog(QDialog):
             variant = self._task_target
             name = getattr(variant, "name", "")
             self._runtime_progress.setValue(int(progress.fraction * 1000))
-            self._runtime_status.setText(
+            set_localized_text(self._runtime_status,
                 f"正在下载 {name}　{progress.fraction * 100:.0f}%　"
-                f"{_human_size(progress.bytes_per_second)}/s"
+                f"{_human_size(progress.bytes_per_second)}/s", self._language
             )
         elif self._task_kind == "model" and self._active_card is not None:
             eta = progress.eta_seconds
@@ -679,7 +685,7 @@ class SettingsDialog(QDialog):
                 f"{_human_size(progress.bytes_per_second)}/s{suffix}",
             )
         elif self._task_kind == "probe" and progress.total:
-            self._source_status.setText(f"正在测试下载源…　{progress.downloaded}/{progress.total}")
+            set_localized_text(self._source_status, f"正在测试下载源…　{progress.downloaded}/{progress.total}", self._language)
 
     def _finish_task(self) -> None:
         """Tear down the worker thread without destroying the task mid-emission.
@@ -722,7 +728,7 @@ class SettingsDialog(QDialog):
         self._runtime_button.setEnabled(False)
         self._runtime_progress.setVisible(True)
         self._runtime_progress.setValue(0)
-        self._runtime_status.setText(f"正在下载 {variant.name}…")
+        set_localized_text(self._runtime_status, f"正在下载 {variant.name}…", self._language)
 
         def action(cancel, emit_progress):
             self._manager.install_runtime(variant, on_progress=emit_progress, cancel=cancel)
@@ -780,7 +786,7 @@ class SettingsDialog(QDialog):
             self._close_pending = True
             self._task_done = None
             self.cancel_task()
-            self._runtime_status.setText("正在取消任务，完成后自动关闭…")
+            set_localized_text(self._runtime_status, "正在取消任务，完成后自动关闭…", self._language)
             self.setEnabled(False)
             return
         super().reject()

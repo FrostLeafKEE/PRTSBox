@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -31,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import llama
+from .. import __version__, llama
 from ..config import REGION_PERCENT_MAX, REGION_PERCENT_MIN, ConfigStore
 from ..llama import LlamaManager
 from ..models import (
@@ -55,6 +56,7 @@ from ..win32 import (
 )
 from .layout import ResponsiveRow, scrollable, shrinkable_combo, scroll_page_on_wheel
 from .desktop_pet import DesktopPet
+from .i18n import set_localized_text, set_localized_tooltip, translate_widget_tree
 from .settings_dialog import SettingsDialog
 from .theme import stylesheet, tokens_for
 
@@ -129,8 +131,9 @@ class MainWindow(QMainWindow):
         self._busy_since = 0.0
         self._shutting_down = False
         self._tokens = tokens_for(self._config.get("theme"))
+        self._language = "en" if self._config.get("ui_language") == "en" else "zh"
 
-        self.setWindowTitle("PRTSBox · 实时窗口翻译")
+        self.setWindowTitle(f"PRTSBox v{__version__} · 实时窗口翻译")
         # The minimum is deliberately smaller than the content's natural height.
         # Panels scroll when the window is short, so a small minimum is now safe
         # and keeps the window usable on a cramped display.  The width floor is
@@ -142,13 +145,16 @@ class MainWindow(QMainWindow):
         self._overlay = TranslationOverlay()
         self._overlay.set_colors(self._tokens.overlay_colors())
         self._pet = DesktopPet()
+        self._pet.set_language(self._language)
 
         self._build_ui()
         self._pet.translation_requested.connect(self._start_button.click)
         self._pet.main_window_requested.connect(self._show_main_window)
         self._pet.menu_requested.connect(self._sync_pet_state)
         self._pet.visibility_changed.connect(
-            lambda visible: self._pet_button.setText("关闭桌宠" if visible else "显示桌宠")
+            lambda visible: set_localized_text(
+                self._pet_button, "关闭桌宠" if visible else "显示桌宠", self._language
+            )
         )
         self._start_pipeline_thread()
 
@@ -162,6 +168,7 @@ class MainWindow(QMainWindow):
         self.refresh_windows()
         self._apply_theme()
         self._sync_engine_controls()
+        translate_widget_tree(self, self._language)
         if not self._hotkey_ok:
             self._set_status("F8 全局热键被系统拒绝，请使用界面按钮控制", error=True)
 
@@ -201,7 +208,7 @@ class MainWindow(QMainWindow):
         return scrollable(content)
 
     def _build_header(self) -> QWidget:
-        row = ResponsiveRow(threshold=300, spacing=10)
+        row = ResponsiveRow(threshold=480, spacing=10)
 
         titles = QWidget()
         titles_layout = QVBoxLayout(titles)
@@ -215,15 +222,41 @@ class MainWindow(QMainWindow):
         titles_layout.addWidget(title)
         titles_layout.addWidget(subtitle)
 
+        self._language_button = QPushButton("中 / EN")
+        self._language_button.setObjectName("languageButton")
+        self._language_button.setCheckable(True)
+        self._language_button.setChecked(self._language == "en")
+        self._language_button.setToolTip("切换界面语言 / Switch interface language")
+        self._language_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self._language_button.clicked.connect(self._toggle_language)
+
         settings_button = QPushButton("设置")
         settings_button.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
         settings_button.clicked.connect(self.open_settings)
 
+        actions = QWidget()
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
+        actions_layout.addStretch(1)
+        actions_layout.addWidget(self._language_button)
+        actions_layout.addWidget(settings_button)
+
         row.add(titles, 1)
-        row.add(settings_button, 0)
+        row.add(actions, 0)
         return row
+
+    def _toggle_language(self) -> None:
+        self._language = "en" if self._language == "zh" else "zh"
+        self._config.set("ui_language", self._language)
+        self._config.save()
+        self._language_button.setChecked(self._language == "en")
+        translate_widget_tree(self, self._language)
+        self._pet.set_language(self._language)
 
     @staticmethod
     def _form() -> QFormLayout:
@@ -248,7 +281,7 @@ class MainWindow(QMainWindow):
 
         # Stacks on a narrow window so the button never squeezes the combo down
         # to an unreadable width.
-        row = ResponsiveRow(threshold=320, spacing=9)
+        row = ResponsiveRow(threshold=390, spacing=9)
         self._window_combo = shrinkable_combo(QComboBox(), minimum_characters=14)
         self._window_combo.currentIndexChanged.connect(self._on_window_changed)
         refresh = QPushButton("刷新")
@@ -267,7 +300,7 @@ class MainWindow(QMainWindow):
         # the dialogue in a box at the bottom: reading the whole window also
         # picks up lettering painted on artwork and clothing, and translating
         # that is both wrong and distracting.
-        region_row = ResponsiveRow(threshold=340, spacing=8)
+        region_row = ResponsiveRow(threshold=390, spacing=8)
         self._region_check = QCheckBox("只识别窗口下方")
         self._region_check.toggled.connect(self._on_region_changed)
         self._region_spin = QSpinBox()
@@ -555,9 +588,10 @@ class MainWindow(QMainWindow):
         for model in ready:
             self._model_combo.addItem(f"{model.name}　·　{model.vram_label}", model.id)
         self._model_combo.blockSignals(False)
+        translate_widget_tree(self._model_combo, self._language)
 
         if not ready:
-            self._local_hint.setText("尚未下载本地模型，请点击「设置」→「本地模型」下载。")
+            set_localized_text(self._local_hint, "尚未下载本地模型，请点击「设置」→「本地模型」下载。", self._language)
             return
 
         index = self._model_combo.findData(current)
@@ -567,9 +601,9 @@ class MainWindow(QMainWindow):
             self._config.set("local_model", chosen.id)
             self._config.save()
         if not self._llama.is_runtime_installed():
-            self._local_hint.setText("本地模型已就绪，但还缺少推理运行时，请在「设置」中下载。")
+            set_localized_text(self._local_hint, "本地模型已就绪，但还缺少推理运行时，请在「设置」中下载。", self._language)
         else:
-            self._local_hint.setText("本地翻译完全离线运行，不消耗 API 额度。")
+            set_localized_text(self._local_hint, "本地翻译完全离线运行，不消耗 API 额度。", self._language)
 
     @Slot()
     def _on_region_changed(self) -> None:
@@ -607,10 +641,10 @@ class MainWindow(QMainWindow):
         """
         applies = is_chinese_language(str(self._target_combo.currentData() or ""))
         self._skip_chinese_check.setEnabled(applies)
-        self._skip_chinese_check.setToolTip(
+        set_localized_tooltip(self._skip_chinese_check,
             "目标语言是中文时，识别结果本身为中文的行不会被送去翻译。"
-            if applies
-            else "当前目标语言不是中文，中文原文需要翻译，因此该选项不生效。"
+            if applies else "当前目标语言不是中文，中文原文需要翻译，因此该选项不生效。",
+            self._language,
         )
 
     @Slot()
@@ -725,7 +759,7 @@ class MainWindow(QMainWindow):
         self._running = True
         self._session_id += 1
         self._start_button.setEnabled(True)
-        self._start_button.setText("停止实时翻译（F8 开关）")
+        set_localized_text(self._start_button, "停止实时翻译（F8 开关）", self._language)
         self._sync_pet_state()
         # Replace the "loading model" status immediately.  Waiting for the first
         # frame to do it leaves the loading text on screen for as long as it
@@ -764,7 +798,7 @@ class MainWindow(QMainWindow):
         self._last_result = None
         # An outstanding request still owns the busy flag until it replies.
         # Restarting must not queue a second frame behind that request.
-        self._start_button.setText("开始实时翻译（F8 开关）")
+        set_localized_text(self._start_button, "开始实时翻译（F8 开关）", self._language)
         self._set_status("已停止")
         self._sync_pet_state()
         # The llama-server child is deliberately left running: stopping it would
@@ -913,7 +947,7 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, message: str, *, error: bool = False) -> None:
         self._status_label.setProperty("role", "error" if error else "status")
-        self._status_label.setText(message)
+        set_localized_text(self._status_label, message, self._language)
         # Re-evaluate the stylesheet so the role property takes effect.
         self._status_label.style().unpolish(self._status_label)
         self._status_label.style().polish(self._status_label)
