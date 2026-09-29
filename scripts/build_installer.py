@@ -55,7 +55,10 @@ def _archive(path: Path | None) -> tuple[Path, str]:
 def _extract_payload(archive: Path, destination: Path) -> None:
     with zipfile.ZipFile(archive) as bundle:
         names = {info.filename for info in bundle.infolist() if not info.is_dir()}
-        if not {"PRTSBox.exe", "README.md", "README.zh-CN.md", "使用说明.txt"}.issubset(names):
+        if not {
+            "PRTSBox.exe", "README.md", "README.zh-CN.md",
+            "使用说明.txt", "LICENSE", "COPYING.GPL",
+        }.issubset(names):
             raise SystemExit("Portable zip is missing its executable or instructions")
         if not any(name.startswith("_internal/") for name in names):
             raise SystemExit("Portable zip is missing its bundled runtime files")

@@ -159,8 +159,9 @@ def test_ui_language_switch_persists_and_preserves_translation_choices(
             tabs = dialog.findChild(QTabWidget)
             assert tabs is not None
             assert [tabs.tabText(i) for i in range(tabs.count())] == [
-                "General", "Local model", "Translation provider", "AI Model API"
+                "General", "Local model", "Translation provider", "AI Model API", "About"
             ]
+            assert dialog._update_button.text() == "Check for updates"
             assert any(label.text() == "OCR backend" for label in dialog.findChildren(QLabel))
             assert dialog._theme_combo.itemText(0) == "Dark"
             assert dialog._cards[next(iter(dialog._cards))]._download.text() == "Download"
@@ -207,6 +208,59 @@ def test_saved_english_language_is_applied_on_startup(qapp, patched_pipeline, tm
         assert window._pet._close_action.text() == "Hide pet"
         assert window._source_combo.itemText(0) == "Auto detect"
     finally:
+        window.shutdown()
+
+
+def test_about_tab_checks_updates_without_blocking_ui(
+    qapp, patched_pipeline, tmp_path, monkeypatch
+) -> None:
+    import time
+
+    from PySide6.QtWidgets import QTabWidget
+
+    from prtsbox import updates
+    from prtsbox.ui.settings_dialog import SettingsDialog
+
+    config = ConfigStore(tmp_path / "config.json")
+    config.load()
+    window = make_window(patched_pipeline, config)
+    monkeypatch.setattr(
+        updates, "check_latest_release",
+        lambda: updates.UpdateResult("v1.01", True),
+    )
+    dialog = SettingsDialog(config, window._llama, window)
+    try:
+        tabs = dialog.findChild(QTabWidget)
+        assert tabs is not None
+        tabs.setCurrentIndex(4)
+        dialog.show()
+        qapp.processEvents()
+        dialog._update_button.click()
+        assert dialog._task_thread is not None
+        deadline = time.monotonic() + 3
+        while dialog._task_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+        qapp.processEvents()
+        assert dialog._task_thread is None
+        assert dialog._update_status.text() == "发现新版本：v1.01"
+        assert dialog._release_button.isVisibleTo(dialog)
+
+        def unavailable():
+            raise updates.ReleaseUnavailableError("private repository")
+
+        monkeypatch.setattr(updates, "check_latest_release", unavailable)
+        dialog._update_button.click()
+        deadline = time.monotonic() + 3
+        while dialog._task_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+        qapp.processEvents()
+        assert dialog._task_thread is None
+        assert "仓库已公开" in dialog._update_status.text()
+        assert not dialog._release_button.isVisibleTo(dialog)
+    finally:
+        dialog.reject()
         window.shutdown()
 
 

@@ -20,6 +20,8 @@ The maintained application is the **Python edition**. The Rust code in this repo
 
 The installer does not need administrator rights. Both packages contain the application and OCR components, but **not** the large translation models or local inference runtime. Download those from Settings on first use if you choose local translation.
 
+The new **About** tab and update checker are in the current source tree; the published v1.00 binaries above were built before this addition.
+
 ## Get started
 
 1. Install PRTSBox or extract the portable ZIP, then launch `PRTSBox.exe`.
@@ -41,6 +43,7 @@ Use the **中 / EN** button next to Settings to change the app language. This se
 | Desktop pet | Optional draggable pet with a right-click menu for translation, the main window, and hiding the pet |
 | Display | Dark and Preset-inspired themes, adjustable translation placement and text size |
 | Capture privacy | Translations are excluded from screenshots and streams by default; this can be changed in the UI |
+| Updates | Manual check in **Settings → About**; opens the GitHub release page when a newer stable version is available |
 
 PRTSBox checks for another frame about every **900 ms** while translation is running. A frame still being processed can delay the next check. Capture of minimized, protected, or some exclusive-fullscreen windows depends on whether Windows and the target app make their contents available.
 
@@ -80,4 +83,8 @@ Run the regression suite and build the release artifacts:
 
 The installer step requires [Inno Setup 7](https://jrsoftware.org/isdl.php). The build scripts verify the extracted portable app and a temporary installation/uninstallation. Additional manual probes live in `scripts/`.
 
-See [RUST-MIGRATION.md](./RUST-MIGRATION.md) for the experimental Rust preview. Third-party models and runtimes have their own licenses and use terms.
+See [RUST-MIGRATION.md](./RUST-MIGRATION.md) for the experimental Rust preview.
+
+## License
+
+PRTSBox project code is licensed under **LGPL-3.0-or-later**. See [LICENSE](./LICENSE) and the incorporated [GNU GPL v3 text](./COPYING.GPL). Downloaded models, runtimes, and third-party components have their own licenses and use terms.

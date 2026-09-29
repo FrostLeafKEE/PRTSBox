@@ -6,14 +6,17 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QProgressBar,
@@ -25,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import llama
+from .. import __version__, llama, updates
 from ..config import ConfigStore
 from ..llama import DownloadProgress, LlamaManager
 from ..translate.platform import PLATFORMS, PLATFORM_SECRETS, AZURE_ENDPOINT
@@ -196,6 +199,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(scrollable(self._build_local_tab()), "本地模型")
         tabs.addTab(scrollable(self._build_platform_tab()), "翻译平台")
         tabs.addTab(scrollable(self._build_openai_tab()), "AI 大模型 API")
+        tabs.addTab(scrollable(self._build_about_tab()), "关于")
         root.addWidget(tabs, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -513,6 +517,127 @@ class SettingsDialog(QDialog):
             self._language,
         )
 
+    def _build_about_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 12, 18, 12)
+        layout.setSpacing(10)
+        layout.addStretch(1)
+
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pixmap = QPixmap(str(Path(__file__).resolve().parent / "assets" / "app.png"))
+        if not pixmap.isNull():
+            logo.setPixmap(pixmap.scaled(
+                132, 132, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+        layout.addWidget(logo)
+
+        name = QLabel("PRTSBox")
+        name.setProperty("role", "aboutName")
+        name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(name)
+
+        tagline = QLabel("窗口文字实时识别与翻译")
+        tagline.setProperty("role", "hint")
+        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(tagline)
+        layout.addSpacing(12)
+
+        github_row = QHBoxLayout()
+        github_row.addStretch(1)
+        github = QPushButton("GitHub · FrostLeafKEE/PRTSBox")
+        github.setObjectName("githubLink")
+        github.setToolTip("打开 PRTSBox GitHub 仓库")
+        github.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(updates.REPOSITORY_URL))
+        )
+        github_row.addWidget(github)
+        github_row.addStretch(1)
+        layout.addLayout(github_row)
+        layout.addSpacing(6)
+
+        version_row = QHBoxLayout()
+        version_row.setSpacing(12)
+        version_row.addStretch(1)
+        version = QLabel(f"当前版本：v{__version__}")
+        version.setProperty("role", "hint")
+        version_row.addWidget(version)
+        self._update_button = QPushButton("检查更新")
+        self._update_button.clicked.connect(self._check_for_updates)
+        version_row.addWidget(self._update_button)
+        version_row.addStretch(1)
+        layout.addLayout(version_row)
+
+        self._update_status = QLabel()
+        self._update_status.setProperty("role", "hint")
+        self._update_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._update_status.setWordWrap(True)
+        layout.addWidget(self._update_status)
+
+        release_row = QHBoxLayout()
+        release_row.addStretch(1)
+        self._release_button = QPushButton("查看发布页")
+        self._release_button.setVisible(False)
+        self._release_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(updates.LATEST_RELEASE_URL))
+        )
+        release_row.addWidget(self._release_button)
+        release_row.addStretch(1)
+        layout.addLayout(release_row)
+
+        layout.addStretch(2)
+        license_badge = QLabel("LGPL\nv3+")
+        license_badge.setProperty("role", "licenseBadge")
+        license_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(license_badge, 0, Qt.AlignmentFlag.AlignHCenter)
+        license_note = QLabel("本项目代码采用 LGPL-3.0-or-later")
+        license_note.setProperty("role", "hint")
+        license_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(license_note)
+        third_party = QLabel("模型、运行时和第三方组件遵循各自的许可")
+        third_party.setProperty("role", "hint")
+        third_party.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        third_party.setWordWrap(True)
+        layout.addWidget(third_party)
+        return page
+
+    @Slot()
+    def _check_for_updates(self) -> None:
+        if self._task_thread is not None:
+            set_localized_text(self._update_status, "请等待当前任务完成后再检查更新。", self._language)
+            return
+        set_localized_text(self._update_status, "正在检查 GitHub 正式版本…", self._language)
+        self._release_button.setVisible(False)
+        result: list[updates.UpdateResult | None] = []
+
+        def action(cancel, _emit_progress):
+            if not cancel.is_set():
+                try:
+                    result.append(updates.check_latest_release())
+                except updates.ReleaseUnavailableError:
+                    result.append(None)
+
+        def done() -> None:
+            if not result:
+                return
+            latest = result[0]
+            if latest is None:
+                set_localized_text(
+                    self._update_status, "发布信息不可公开访问，请确认仓库已公开。", self._language
+                )
+                return
+            if latest.newer:
+                set_localized_text(
+                    self._update_status, f"发现新版本：{latest.latest_tag}", self._language
+                )
+                self._release_button.setVisible(True)
+            else:
+                set_localized_text(self._update_status, "当前已是最新正式版。", self._language)
+
+        self._start_task(action, kind="update", target=None, on_done=done)
+
     # -- persistence -----------------------------------------------------
 
     @Slot()
@@ -541,6 +666,7 @@ class SettingsDialog(QDialog):
     def _refresh_local_state(self, *, busy: bool = False) -> None:
         busy = busy or self._task_thread is not None
         self._source_test_button.setEnabled(not busy)
+        self._update_button.setEnabled(not busy)
         variant = llama.find_variant(self._variant_combo.currentData())
         installed = self._manager.is_runtime_installed()
         chosen_installed = variant is not None and variant.is_installed()
@@ -611,11 +737,15 @@ class SettingsDialog(QDialog):
             # A late queued signal from a task that has already been reported;
             # acting on it would overwrite the current state with stale text.
             return
-        self._logger.warning("下载任务结束：%s", message)
+        kind = self._task_kind
+        self._logger.warning("设置任务结束：%s", message)
         self._task_done = None
         self._finish_task()
         self._refresh_local_state()
-        set_localized_text(self._runtime_status, f"下载未完成：{message}", self._language)
+        if kind == "update":
+            set_localized_text(self._update_status, "检查更新失败，请稍后重试。", self._language)
+        else:
+            set_localized_text(self._runtime_status, f"下载未完成：{message}", self._language)
 
     @Slot()
     def _save_source(self) -> None:
@@ -786,7 +916,10 @@ class SettingsDialog(QDialog):
             self._close_pending = True
             self._task_done = None
             self.cancel_task()
-            set_localized_text(self._runtime_status, "正在取消任务，完成后自动关闭…", self._language)
+            if self._task_kind == "update":
+                set_localized_text(self._update_status, "正在结束检查，完成后自动关闭…", self._language)
+            else:
+                set_localized_text(self._runtime_status, "正在取消任务，完成后自动关闭…", self._language)
             self.setEnabled(False)
             return
         super().reject()

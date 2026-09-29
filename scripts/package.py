@@ -30,7 +30,9 @@ DIST = PROJECT / "dist"
 APP_DIR = DIST / "PRTSBox"
 
 # Files copied next to the executable, from the repository.
-BUNDLED_DOCS = ("README.md", "README.zh-CN.md", "使用说明.txt")
+BUNDLED_DOCS = (
+    "README.md", "README.zh-CN.md", "使用说明.txt", "LICENSE", "COPYING.GPL",
+)
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:

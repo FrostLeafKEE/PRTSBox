@@ -133,6 +133,16 @@ QLabel[role="hint"] { color: $text_muted; font-size: 12px; }
 QLabel[role="status"] { color: $text_muted; }
 QLabel[role="error"] { color: $danger; }
 QLabel[role="section"] { color: $text_muted; font-weight: 600; font-size: 12px; }
+QLabel[role="aboutName"] { color: $text; font-size: 25px; font-weight: 700; }
+QLabel[role="licenseBadge"] {
+    color: $accent;
+    background: $surface;
+    border: 1px solid $border_strong;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 12px 24px;
+}
 
 /* ---- group boxes ---- */
 QGroupBox {
@@ -164,6 +174,8 @@ QPushButton:hover { background: $hover; border-color: $border_strong; }
 QPushButton:pressed { background: $border; }
 QPushButton:disabled { color: $text_muted; background: $surface; border-color: $border; }
 QPushButton#languageButton:checked { color: $accent; border-color: $accent; }
+QPushButton#githubLink { color: $accent; border-color: $border_strong; }
+QPushButton#githubLink:hover { border-color: $accent; }
 
 QPushButton[role="primary"] {
     background: $accent;

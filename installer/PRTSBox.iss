@@ -61,6 +61,8 @@ Source: "{#SourceRoot}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreve
 Source: "{#SourceRoot}\使用说明.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\COPYING.GPL"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\PRTSBox"; Filename: "{app}\PRTSBox.exe"; Tasks: desktopicon

@@ -97,7 +97,10 @@ def main() -> int:
     tabs = dialog.findChild(QTabWidget)
     assert tabs is not None
 
-    for index, name in ((0, "general"), (1, "local"), (2, "openai")):
+    for index, name in (
+        (0, "general"), (1, "local"), (2, "platform"),
+        (3, "openai"), (4, "about"),
+    ):
         tabs.setCurrentIndex(index)
         settle(dialog)
         for width, height in SETTINGS_SIZES:
@@ -113,6 +116,14 @@ def main() -> int:
     shoot(dialog, "preview_settings_downloading_narrow.png")
 
     dialog.reject()
+    config.set("theme", "light")
+    light_dialog = SettingsDialog(config, manager, window)
+    light_dialog.show()
+    light_tabs = light_dialog.findChild(QTabWidget)
+    assert light_tabs is not None
+    light_tabs.setCurrentIndex(4)
+    shoot(light_dialog, "preview_settings_about_light.png")
+    light_dialog.reject()
     return 0
 
 

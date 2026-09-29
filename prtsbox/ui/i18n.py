@@ -39,7 +39,18 @@ ENGLISH = {
     "显示桌宠": "Show pet", "关闭桌宠": "Hide pet", "就绪": "Ready",
     "打开主窗口": "Open main window", "开启翻译": "Start translation",
     "停止翻译": "Stop translation", "正在准备翻译…": "Preparing translation…",
-    "通用": "General", "AI 大模型 API": "AI Model API",
+    "通用": "General", "AI 大模型 API": "AI Model API", "关于": "About",
+    "窗口文字实时识别与翻译": "Live window OCR translation",
+    "打开 PRTSBox GitHub 仓库": "Open the PRTSBox GitHub repository",
+    "检查更新": "Check for updates", "查看发布页": "Open release page",
+    "请等待当前任务完成后再检查更新。": "Wait for the current task before checking for updates.",
+    "正在检查 GitHub 正式版本…": "Checking the latest GitHub release…",
+    "当前已是最新正式版。": "You have the latest stable version.",
+    "检查更新失败，请稍后重试。": "Could not check for updates. Try again later.",
+    "发布信息不可公开访问，请确认仓库已公开。": "Release information is not public. Check the repository visibility.",
+    "正在结束检查，完成后自动关闭…": "Finishing the check; Settings will close shortly…",
+    "本项目代码采用 LGPL-3.0-or-later": "Project code is licensed under LGPL-3.0-or-later",
+    "模型、运行时和第三方组件遵循各自的许可": "Models, runtimes and third-party components have separate licenses",
     "深色": "Dark", "浅色": "Light", "普瑞赛斯 · 星芒档案": "Priestess · Star Archive",
     "主题风格": "Theme", "自动（推荐）": "Auto (recommended)",
     "ONNX Runtime（内存稳定）": "ONNX Runtime (stable memory use)",
@@ -130,6 +141,8 @@ ENGLISH = {
 # deliberately are not applied to OCR text, user-provided window titles or the
 # translated overlay.
 FRAGMENTS = {
+    "当前版本：": "Installed version: ",
+    "发现新版本：": "New version available: ",
     "配置与模型目录：": "Configuration and model directory: ",
     "所有数据都保存在程序目录内，不会写入系统其他位置。": "All data stays in the application directory.",
     "未知": "Unknown", "已取消": "Cancelled",
