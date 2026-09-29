@@ -19,7 +19,7 @@ def test_package_excludes_data_without_deleting_it(tmp_path, monkeypatch):
     dist_dir.mkdir()
     monkeypatch.setattr(packaging, "DIST", dist_dir)
     archive = packaging.make_zip(app_dir)
-    assert archive.name == "PRTSBox-v1.00-win64.zip"
+    assert archive.name == "PRTSBox-v1.01-win64.zip"
 
     with zipfile.ZipFile(archive) as bundle:
         assert bundle.namelist() == ["PRTSBox.exe"]

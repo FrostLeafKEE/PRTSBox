@@ -5,7 +5,7 @@
 
 <p align="center"><img src="./prtsbox/ui/assets/app.png" width="96" alt="PRTSBox 图标"></p>
 
-# PRTSBox v1.00
+# PRTSBox v1.01
 
 **Windows 窗口实时翻译工具。** PRTSBox 抓取指定窗口，识别其中的文字，翻译后将译文覆盖在原内容附近；译文层可被鼠标点穿。适用于游戏、视觉小说，以及文字无法直接选取的其他程序。
 
@@ -15,12 +15,10 @@
 
 | Windows 10/11 · 64 位 | 文件 | 内容 |
 |---|---|---|
-| 安装版 | [PRTSBox-Setup-v1.00-win64.exe](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.00/PRTSBox-Setup-v1.00-win64.exe) | 当前用户安装，可选桌面与开始菜单快捷方式，附 Windows 卸载程序 |
-| 便携版 | [PRTSBox-v1.00-win64.zip](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.00/PRTSBox-v1.00-win64.zip) | 解压后运行 `PRTSBox.exe`，无需安装 |
+| 安装版 | [PRTSBox-Setup-v1.01-win64.exe](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.01/PRTSBox-Setup-v1.01-win64.exe) | 当前用户安装，可选桌面与开始菜单快捷方式，附 Windows 卸载程序 |
+| 便携版 | [PRTSBox-v1.01-win64.zip](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.01/PRTSBox-v1.01-win64.zip) | 解压后运行 `PRTSBox.exe`，无需安装 |
 
 安装版无需管理员权限。两个版本都包含程序和 OCR 组件，但**不包含**体积较大的翻译模型与本地推理运行时。选择本地翻译时，首次使用需在设置中下载。
-
-新的**关于**页和检查更新功能已加入当前源码；上方发布的 v1.00 安装包和便携包早于这次修改。
 
 ## 开始使用
 

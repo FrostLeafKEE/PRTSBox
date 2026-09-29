@@ -114,7 +114,7 @@ def test_ui_language_switch_persists_and_preserves_translation_choices(
         original_engine = window._engine_combo.currentData()
         original_target = window._target_combo.currentData()
         assert window._language_button.text() == "中 / EN"
-        assert window.windowTitle() == "PRTSBox v1.00 · 实时窗口翻译"
+        assert window.windowTitle() == "PRTSBox v1.01 · 实时窗口翻译"
 
         window.resize(400, 520)
         window.show()
@@ -123,7 +123,7 @@ def test_ui_language_switch_persists_and_preserves_translation_choices(
         qapp.processEvents()
         assert config.get("ui_language") == "en"
         assert ConfigStore(config.path).load()["ui_language"] == "en"
-        assert window.windowTitle() == "PRTSBox v1.00 · Live Window Translation"
+        assert window.windowTitle() == "PRTSBox v1.01 · Live Window Translation"
         assert any(group.title() == "Translation engine" for group in window.findChildren(QGroupBox))
         assert window._engine_combo.itemText(0) == "Local model (free, offline)"
         assert window._target_combo.itemText(window._target_combo.findData("en")) == "English"
@@ -185,7 +185,7 @@ def test_ui_language_switch_persists_and_preserves_translation_choices(
 
         window._language_button.click()
         assert config.get("ui_language") == "zh"
-        assert window.windowTitle() == "PRTSBox v1.00 · 实时窗口翻译"
+        assert window.windowTitle() == "PRTSBox v1.01 · 实时窗口翻译"
         assert window._status_label.text() == "未识别到文字"
         assert "目标语言是中文" in window._skip_chinese_check.toolTip()
         assert window._pet._main_window_action.text() == "打开主窗口"
@@ -203,7 +203,7 @@ def test_saved_english_language_is_applied_on_startup(qapp, patched_pipeline, tm
 
     window = make_window(patched_pipeline, ConfigStore(config.path))
     try:
-        assert window.windowTitle() == "PRTSBox v1.00 · Live Window Translation"
+        assert window.windowTitle() == "PRTSBox v1.01 · Live Window Translation"
         assert window._language_button.isChecked()
         assert window._pet._close_action.text() == "Hide pet"
         assert window._source_combo.itemText(0) == "Auto detect"
@@ -226,7 +226,7 @@ def test_about_tab_checks_updates_without_blocking_ui(
     window = make_window(patched_pipeline, config)
     monkeypatch.setattr(
         updates, "check_latest_release",
-        lambda: updates.UpdateResult("v1.01", True),
+        lambda: updates.UpdateResult("v1.02", True),
     )
     dialog = SettingsDialog(config, window._llama, window)
     try:
@@ -243,7 +243,7 @@ def test_about_tab_checks_updates_without_blocking_ui(
             time.sleep(0.01)
         qapp.processEvents()
         assert dialog._task_thread is None
-        assert dialog._update_status.text() == "发现新版本：v1.01"
+        assert dialog._update_status.text() == "发现新版本：v1.02"
         assert dialog._release_button.isVisibleTo(dialog)
 
         def unavailable():

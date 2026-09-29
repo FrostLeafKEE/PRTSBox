@@ -5,7 +5,7 @@
 
 <p align="center"><img src="./prtsbox/ui/assets/app.png" width="96" alt="PRTSBox icon"></p>
 
-# PRTSBox v1.00
+# PRTSBox v1.01
 
 **Live translation for a window on Windows.** PRTSBox captures a window, recognizes its text, translates it, and places a click-through translation over the original content. It is designed for games, visual novels, and other apps whose text cannot be selected.
 
@@ -15,12 +15,10 @@ The maintained application is the **Python edition**. The Rust code in this repo
 
 | Windows 10/11 · x64 | File | What you get |
 |---|---|---|
-| Installer | [PRTSBox-Setup-v1.00-win64.exe](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.00/PRTSBox-Setup-v1.00-win64.exe) | Per-user installation, optional desktop and Start Menu shortcuts, Windows uninstaller |
-| Portable | [PRTSBox-v1.00-win64.zip](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.00/PRTSBox-v1.00-win64.zip) | Extract and run `PRTSBox.exe`; no installation |
+| Installer | [PRTSBox-Setup-v1.01-win64.exe](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.01/PRTSBox-Setup-v1.01-win64.exe) | Per-user installation, optional desktop and Start Menu shortcuts, Windows uninstaller |
+| Portable | [PRTSBox-v1.01-win64.zip](https://github.com/FrostLeafKEE/PRTSBox/releases/download/v1.01/PRTSBox-v1.01-win64.zip) | Extract and run `PRTSBox.exe`; no installation |
 
 The installer does not need administrator rights. Both packages contain the application and OCR components, but **not** the large translation models or local inference runtime. Download those from Settings on first use if you choose local translation.
-
-The new **About** tab and update checker are in the current source tree; the published v1.00 binaries above were built before this addition.
 
 ## Get started
 
