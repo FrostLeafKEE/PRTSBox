@@ -9,8 +9,6 @@
 
 **Live translation for a window on Windows.** PRTSBox captures a window, recognizes its text, translates it, and places a click-through translation over the original content. It is designed for games, visual novels, and other apps whose text cannot be selected.
 
-The maintained application is the **Python edition**. The Rust code in this repository is an experimental preview and is not the recommended download.
-
 ## Download
 
 | Windows 10/11 · x64 | File | What you get |
@@ -80,8 +78,6 @@ Run the regression suite and build the release artifacts:
 ```
 
 The installer step requires [Inno Setup 7](https://jrsoftware.org/isdl.php). The build scripts verify the extracted portable app and a temporary installation/uninstallation. Additional manual probes live in `scripts/`.
-
-See [RUST-MIGRATION.md](./RUST-MIGRATION.md) for the experimental Rust preview.
 
 ## License
 
